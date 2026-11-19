@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { BOTS, SYNTH_BOT } from './lib/council';
 import {
@@ -7,10 +7,12 @@ import {
   synthesisMarkSent, synthesisAnswerEdited, synthesisSaved,
   copyPromptRequested, pasteAnswerRequested, exportRequested,
   copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
+  filesInitRequested, refreshFilesRequested, contextLoaded, recentFilesUpdated, logAdded,
   selectRoundSavedCount, selectTotalSavedCount, STATUS,
 } from './store/councilSlice';
 import BotCard from './components/BotCard';
 import RoundStepper from './components/RoundStepper';
+import FilesPanel from './components/FilesPanel';
 
 export default function App() {
   const dispatch = useDispatch();
@@ -52,8 +54,67 @@ export default function App() {
 
   const apiCall = (fn, arg) => { if (window.councilApi?.[fn]) window.councilApi[fn](arg); };
 
+  // Workflow file: khoi tao thu muc lam viec / lich su tu Electron main, va
+  // tu lam moi panel tien trinh khi file trong thu muc phien thay doi (fs.watch).
+  const [isDragging, setIsDragging] = useState(false);
+  const refreshTimer = useRef(null);
+  useEffect(() => { dispatch(filesInitRequested()); }, [dispatch]);
+  useEffect(() => {
+    const fsx = window.councilFs;
+    if (!fsx?.onChanged) return undefined;
+    const off = fsx.onChanged(() => {
+      clearTimeout(refreshTimer.current);
+      refreshTimer.current = setTimeout(() => dispatch(refreshFilesRequested()), 400);
+    });
+    return () => { if (off) off(); clearTimeout(refreshTimer.current); };
+  }, [dispatch]);
+
+  // Keo-tha file vao app: file .txt/.md/.json tro thanh NGU CANH (dinh vao
+  // prompt vong 1 + tong hop). Ban Electron doc bang duong dan that va ghi
+  // vao danh sach file gan day; che do trinh duyet doc thang noi dung file.
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const dropped = [...(e.dataTransfer?.files || [])];
+    if (!dropped.length) return;
+    const fsx = window.councilFs;
+    const parts = [];
+    const names = [];
+    for (const file of dropped) {
+      if (!/\.(txt|md|json|csv)$/i.test(file.name)) {
+        dispatch(logAdded(`Bỏ qua file "${file.name}" — chỉ nạp được file văn bản .txt/.md/.json/.csv làm ngữ cảnh.`));
+        continue;
+      }
+      try {
+        const filePath = fsx?.getDroppedFilePath ? fsx.getDroppedFilePath(file) : '';
+        if (fsx?.readPath && filePath) {
+          const result = await fsx.readPath(filePath);
+          if (!result?.ok) { dispatch(logAdded(`Không đọc được file "${file.name}": ${result?.error || 'lỗi không rõ'}`)); continue; }
+          parts.push(`--- File: ${result.name} ---\n${result.content}`);
+          names.push(result.name);
+          if (result.recentFiles) dispatch(recentFilesUpdated(result.recentFiles));
+        } else {
+          const text = await file.text();
+          parts.push(`--- File: ${file.name} ---\n${text}`);
+          names.push(file.name);
+        }
+      } catch (err) {
+        dispatch(logAdded(`Không đọc được file "${file.name}": ${String(err)}`));
+      }
+    }
+    if (parts.length) {
+      dispatch(contextLoaded({ name: names.join(', '), path: '', text: parts.join('\n\n').slice(0, 60000) }));
+    }
+  };
+
   return (
-    <div className="app">
+    <div
+      className="app"
+      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setIsDragging(false); }}
+      onDrop={handleDrop}
+    >
+      {isDragging && <div className="drop-overlay">Thả file .txt / .md / .json vào đây để nạp làm ngữ cảnh cho hội đồng</div>}
       <header className="topbar">
         <div className="brand">🗣️ Chat Hội Đồng</div>
         {phase !== 'setup' && <div className="topic-title" title={topic.title}>{topic.title}</div>}
@@ -110,6 +171,7 @@ export default function App() {
             <button type="button" className="primary big" disabled={!topic.title.trim()} onClick={() => dispatch(startSession())}>
               Bắt đầu phiên hội đồng
             </button>
+            <FilesPanel />
           </section>
         ) : (
           <>
@@ -169,6 +231,8 @@ export default function App() {
                 browserMode={!isElectron}
                 synth
               />
+
+              <FilesPanel />
 
               <div className="sidebar-title">Nhật ký thao tác</div>
               <div className="log">

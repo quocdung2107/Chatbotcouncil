@@ -37,6 +37,47 @@ việc gõ lệnh trong Terminal của bản `hoi_dong.py`: mọi thao tác copy
 Prompt, vai trò, form đáp án và cách ẩn danh vòng 2 bám đúng thiết kế của `hoi_dong.py`
 ở thư mục gốc của repo (xem `src/lib/council.js`).
 
+## Workflow file trên Windows (gói đầy đủ — chỉ bản Electron)
+
+Thay vì mọi thứ chỉ nằm trong bộ nhớ của app, mỗi phiên hội đồng là **một thư mục
+thật trên máy bạn**, và app làm việc trực tiếp với hệ thống file của Windows qua
+Electron main process (`electron/fsApi.js`) — React chỉ gọi qua cầu nối an toàn
+`window.councilFs` ở preload, không chạm trực tiếp vào ổ đĩa. **3 vòng thảo luận
+được giữ nguyên** — workflow file chỉ bỏ phần gom bài/đặt tên/quản lý thủ công,
+không cắt vòng nào.
+
+- **Thư mục làm việc**: mặc định `Documents\ChatHoiDong`, đổi được bằng nút
+  "Đổi…" trong panel **File & tiến trình** (app nhớ lựa chọn). Mọi thao tác
+  ghi/xoá của app chỉ diễn ra *trong* thư mục này.
+- **Thư mục phiên**: bấm "Bắt đầu phiên hội đồng", app tự tạo thư mục
+  `YYYY-MM-DD-<tên-chủ-đề>` gồm sẵn:
+  - `00-yeu-cau.md` — chủ đề, mục tiêu, tiêu chí (+ ngữ cảnh nếu có nạp file)
+  - `00-huong-dan-chung.md` — file "huấn luyện" của hội đồng: cách làm việc
+    3 vòng, vai từng bot, quy tắc form/độ tin cậy. Các chatbot web miễn phí
+    không fine-tune được, nên nội dung cốt lõi của file này được app đính vào
+    prompt vòng 1 của mỗi phiên mới.
+  - `<bot>-vong-<1..3>.md` — mỗi đáp án tự ghi thành 1 file riêng ngay khi bạn
+    bấm "Dán đáp án về" / "Lưu đáp án" (chatgpt/claude/gemini/copilot × 3 vòng)
+  - `muse-tong-hop.md` — kết luận tổng hợp cuối của Muse, và
+    `ket-qua-hoi-dong.md` — bản xuất toàn bộ phiên (nút "Xuất kết quả" cũng ghi
+    thẳng vào đây khi phiên đã có thư mục)
+  - `phien.json` — toàn bộ trạng thái phiên để **mở lại phiên cũ**
+  - `tien-trinh.md` + `logs/activity.jsonl` — lịch sử tiến trình của phiên
+- **Panel tiến trình theo file**: bảng 4 bot × 3 vòng + hàng Muse tổng hợp,
+  tính theo file thật trong thư mục phiên (ô nào đã có file sẽ hiện ✓ kèm giờ
+  ghi). App theo dõi thư mục bằng `fs.watch` nên file thay đổi là panel tự cập
+  nhật. Trong panel còn có: danh sách file của phiên (mở / hiện trong Explorer /
+  xoá vào Recycle Bin), **file gần đây**, và **lịch sử các phiên cũ** (bấm
+  "Mở lại" để khôi phục đúng trạng thái từ `phien.json`).
+- **Nạp file ngữ cảnh**: bấm "Nạp file…" hoặc **kéo-thả file .txt/.md/.json/.csv
+  thẳng vào cửa sổ app** — nội dung file tự đính vào prompt vòng 1 và prompt
+  tổng hợp, khỏi copy-paste. File ngoài thư mục làm việc chỉ được đọc khi chính
+  bạn chọn qua hộp thoại hoặc kéo-thả vào.
+- **An toàn**: xoá file = đưa vào Recycle Bin (khôi phục được), ghi/xoá bị chặn
+  ngoài thư mục làm việc, file đọc vào tối đa 2MB và chỉ nhận định dạng văn bản.
+- Chế độ trình duyệt (`npm run dev:renderer`): kéo-thả nạp ngữ cảnh vẫn dùng
+  được, nhưng thư mục phiên / lịch sử / Explorer chỉ có ở bản Electron.
+
 ## Vì sao vẫn phải dán/Gửi/copy bằng tay?
 
 Các chatbot web miễn phí không cho phép tự động hoá việc gửi/nhận tin (điều khoản
@@ -70,13 +111,14 @@ npm start
 ui/
   electron/
     main.js      — cửa sổ chính, các WebContentsView (4 chatbot + tab Muse tổng hợp), clipboard, hộp thoại lưu file
-    preload.js   — cầu nối an toàn window.councilApi cho React
+    fsApi.js     — làm việc với file hệ thống: thư mục làm việc/phiên, ghi file từng đáp án, lịch sử, kéo-thả, Explorer, Recycle Bin, fs.watch
+    preload.js   — cầu nối an toàn window.councilApi + window.councilFs cho React
   src/
     lib/council.js       — bot, vai trò, form, hàm soạn prompt, xuất Markdown
     store/councilSlice.js— Redux Toolkit slice: trạng thái phiên, từng ô đáp án
     store/councilSaga.js — Redux Saga: copy prompt, dán đáp án, tự chuyển vòng, xuất file
     store/store.js       — store + tự lưu phiên vào localStorage
-    components/          — BotCard (thẻ thao tác), RoundStepper (thanh 3 vòng)
+    components/          — BotCard (thẻ thao tác), RoundStepper (thanh 3 vòng), FilesPanel (file & tiến trình, lịch sử phiên)
     App.jsx              — bố cục 1 màn hình, đồng bộ vị trí các view với Electron
 ```
 

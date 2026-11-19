@@ -16,6 +16,10 @@ function loadPersisted() {
     // khong hong phien dang lam do.
     if (!parsed.synthesis) parsed.synthesis = { status: 'idle', answer: '' };
     if (parsed.phase === 'done' && !parsed.synthesis.answer) parsed.phase = 'synthesis';
+    // Phien luu tu ban cu chua co workflow file — bo sung mac dinh.
+    if (!parsed.files) {
+      parsed.files = { workDir: '', sessionDir: '', sessionFolder: '', contextName: '', contextPath: '', contextText: '', recentFiles: [], history: [], sessionFiles: [] };
+    }
     return { council: parsed };
   } catch (_) {
     return undefined;

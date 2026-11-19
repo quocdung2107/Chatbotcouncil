@@ -17,6 +17,20 @@ function emptyAnswers() {
   return rounds;
 }
 
+function emptyFiles() {
+  return {
+    workDir: '', // thu muc lam viec tren Windows (chi Electron)
+    sessionDir: '', // thu muc cua phien hien tai, trong workDir
+    sessionFolder: '',
+    contextName: '', // file ngu canh nguoi dung nap/keo-tha vao
+    contextPath: '',
+    contextText: '',
+    recentFiles: [], // file gan day (main process luu ben)
+    history: [], // cac phien cu quet tu workDir: {dir, folder, title, savedCount, hasSynthesis, updatedAt}
+    sessionFiles: [], // file trong thu muc phien: {name, path, size, mtime, lines}
+  };
+}
+
 function timeNow() {
   return new Date().toLocaleTimeString('vi-VN', { hour12: false });
 }
@@ -30,6 +44,7 @@ const initialState = {
   answers: emptyAnswers(),
   // Buoc tong hop cuoi cung o tab Muse (khong nam trong 3 vong x 4 bot).
   synthesis: { status: STATUS.idle, answer: '' },
+  files: emptyFiles(),
   log: [],
 };
 
@@ -123,8 +138,67 @@ const councilSlice = createSlice({
     logAdded(state, action) {
       state.log.unshift({ time: timeNow(), text: action.payload });
     },
-    resetAll() {
-      return initialState;
+    // ---- Workflow file (goi day du) ----
+    filesStateLoaded(state, action) {
+      const { workDir, recentFiles, history } = action.payload || {};
+      if (workDir) state.files.workDir = workDir;
+      if (Array.isArray(recentFiles)) state.files.recentFiles = recentFiles;
+      if (Array.isArray(history)) state.files.history = history;
+    },
+    workDirChanged(state, action) {
+      state.files.workDir = action.payload.workDir;
+      if (Array.isArray(action.payload.history)) state.files.history = action.payload.history;
+      state.log.unshift({ time: timeNow(), text: `Thư mục làm việc: ${action.payload.workDir}` });
+    },
+    sessionFolderReady(state, action) {
+      state.files.sessionDir = action.payload.sessionDir;
+      state.files.sessionFolder = action.payload.sessionFolder;
+      if (Array.isArray(action.payload.files)) state.files.sessionFiles = action.payload.files;
+      state.log.unshift({ time: timeNow(), text: `Thư mục phiên đã sẵn sàng: ${action.payload.sessionDir} — mỗi đáp án sẽ tự ghi thành 1 file riêng trong đó (giữ nguyên 3 vòng).` });
+    },
+    sessionFilesUpdated(state, action) {
+      if (Array.isArray(action.payload)) state.files.sessionFiles = action.payload;
+    },
+    recentFilesUpdated(state, action) {
+      if (Array.isArray(action.payload)) state.files.recentFiles = action.payload;
+    },
+    historyUpdated(state, action) {
+      if (Array.isArray(action.payload)) state.files.history = action.payload;
+    },
+    contextLoaded(state, action) {
+      const { name, path: filePath, text } = action.payload;
+      state.files.contextName = name || '';
+      state.files.contextPath = filePath || '';
+      state.files.contextText = text || '';
+      state.log.unshift({ time: timeNow(), text: `Đã nạp file ngữ cảnh "${name}" (${(text || '').length} ký tự) — nội dung sẽ tự đính vào prompt vòng 1 và prompt tổng hợp.` });
+    },
+    contextCleared(state) {
+      state.files.contextName = '';
+      state.files.contextPath = '';
+      state.files.contextText = '';
+      state.log.unshift({ time: timeNow(), text: 'Đã bỏ file ngữ cảnh.' });
+    },
+    sessionRestored(state, action) {
+      const data = action.payload;
+      if (!data || !data.topic || !data.answers) return;
+      state.topic = data.topic;
+      state.answers = data.answers;
+      state.synthesis = data.synthesis || { status: STATUS.idle, answer: '' };
+      state.phase = data.phase || 'running';
+      state.round = data.round || 1;
+      state.activeBotId = 'chatgpt';
+      if (data.files) {
+        state.files.sessionDir = data.files.sessionDir || state.files.sessionDir;
+        state.files.sessionFolder = data.files.sessionFolder || state.files.sessionFolder;
+        state.files.contextName = data.files.contextName || '';
+        state.files.contextText = data.files.contextText || '';
+      }
+      state.log.unshift({ time: timeNow(), text: `Đã mở lại phiên cũ: ${data.topic.title}` });
+    },
+    resetAll(state) {
+      // Giu lai thu muc lam viec + lich su file (cai dat cua may, khong phai cua phien).
+      const { workDir, recentFiles, history } = state.files;
+      return { ...initialState, files: { ...emptyFiles(), workDir, recentFiles, history } };
     },
     // Cac action duoi day do Saga xu ly (khong doi state truc tiep):
     copyPromptRequested() {},
@@ -132,6 +206,11 @@ const councilSlice = createSlice({
     exportRequested() {},
     copySynthesisPromptRequested() {},
     pasteSynthesisAnswerRequested() {},
+    filesInitRequested() {},
+    chooseWorkDirRequested() {},
+    loadContextRequested() {},
+    restoreSessionRequested() {},
+    refreshFilesRequested() {},
   },
 });
 
@@ -141,8 +220,12 @@ export const {
   synthesisPromptCopied, synthesisMarkSent, synthesisAnswerPasted,
   synthesisAnswerEdited, synthesisSaved,
   exportDone, logAdded, resetAll,
+  filesStateLoaded, workDirChanged, sessionFolderReady, sessionFilesUpdated,
+  recentFilesUpdated, historyUpdated, contextLoaded, contextCleared, sessionRestored,
   copyPromptRequested, pasteAnswerRequested, exportRequested,
   copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
+  filesInitRequested, chooseWorkDirRequested, loadContextRequested,
+  restoreSessionRequested, refreshFilesRequested,
 } = councilSlice.actions;
 
 export default councilSlice.reducer;

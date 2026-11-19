@@ -7,6 +7,7 @@
 const { app, BrowserWindow, WebContentsView, ipcMain, clipboard, dialog, session, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { createFsApi } = require('./fsApi');
 
 const BOTS = [
   { id: 'chatgpt', url: 'https://chatgpt.com/' },
@@ -177,6 +178,13 @@ ipcMain.handle('file:save-text', async (_e, { filename, content }) => {
   fs.writeFileSync(result.filePath, String(content ?? ''), 'utf8');
   return { saved: true, path: result.filePath };
 });
+
+// ---- IPC lam viec voi file he thong (goi day du: chon thu muc lam viec,
+// tao thu muc phien giu nguyen 3 vong, ghi file tung dap an, doc file ngu
+// canh, keo-tha, lich su phien/file, mo Explorer, xoa vao Recycle Bin,
+// fs.watch bao tien trinh) — xem electron/fsApi.js. Renderer chi goi qua
+// window.councilFs o preload, khong cham truc tiep vao o dia.
+createFsApi({ app, getWindow: () => win });
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

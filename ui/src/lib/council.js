@@ -74,8 +74,70 @@ function criteriaLines(criteriaText) {
   return lines.length ? lines.map((c) => `- ${c}`).join('\n') : '- (chưa có tiêu chí riêng)';
 }
 
+// ---- Workflow file: ten thu muc / ten file cua 1 phien hoi dong ----
+// Moi phien la 1 thu muc trong thu muc lam viec; moi dap an la 1 file rieng
+// (giu nguyen 3 vong: <bot>-vong-<1..3>.md), kem file yeu cau, file huong
+// dan chung ("training" bang briefing), file tien trinh va phien.json.
+export function slugifyTopic(title) {
+  const slug = String(title || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd').replace(/Đ/g, 'D')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    .slice(0, 48).replace(/-+$/g, '');
+  return slug || 'chu-de';
+}
+
+export function sessionFolderName(title, date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}-${slugifyTopic(title)}`;
+}
+
+export function sessionFileName(botId, round) {
+  return `${botId}-vong-${round}.md`;
+}
+
+export const SYNTH_FILE_NAME = 'muse-tong-hop.md';
+export const SESSION_JSON_NAME = 'phien.json';
+
+// File "huong dan chung" — cach "training" cac chatbot web mien phi: khong
+// fine-tune duoc, nen app dinh kem noi dung nay vao prompt dau tien cua moi
+// phien moi va luu san trong thu muc phien de nguoi dung xem lai.
+export function buildBriefingText(topic) {
+  const goal = (topic.goal || '').trim() || topic.title;
+  const roles = BOTS.map((b) => `- ${b.name}: ${ROLES_V1[b.id]}`).join('\n');
+  return `# Hướng dẫn chung cho Hội Đồng — ${topic.title}
+
+Mục tiêu chung: ${goal}
+
+## Cách hội đồng làm việc (giữ nguyên 3 vòng)
+1. Vòng 1 — Đề xuất mù: mỗi thành viên trả lời độc lập, không thấy bài của nhau.
+2. Vòng 2 — Phản biện chéo ẩn danh: phản biện bài được giao (đã ẩn danh A–D), có chấm điểm.
+3. Vòng 3 — Tác giả sửa bài: đọc phản biện về bài mình, sửa chỗ đúng, bảo vệ chỗ còn đúng kèm lý do.
+Sau vòng 3, Muse (tab tổng hợp) đọc cả 4 bản cuối + phản biện vòng 2 và chốt kết luận cuối cùng.
+
+## Vai vòng 1
+${roles}
+
+## Quy tắc bắt buộc
+- Trả lời đúng form được giao trong prompt của vòng, không tự đổi form.
+- Nêu căn cứ cho luận điểm chính; không chắc thì ghi vào mục Rủi ro / Cần kiểm chứng, không bịa.
+- Độ tin cậy phải thành thật (Cao / Trung bình / Thấp kèm lý do).
+- Không lặp lại phần đã đúng của người khác; tập trung vào nhiệm vụ của vòng.
+`;
+}
+
+export function buildRequestText(topic, contextText) {
+  const out = [`# Yêu cầu — ${topic.title}`, '', `Mục tiêu: ${(topic.goal || '').trim() || topic.title}`, '', '## Tiêu chí chấm', (topic.criteriaText || '').trim() || '(chưa có tiêu chí riêng)'];
+  if (contextText && contextText.trim()) out.push('', '## Ngữ cảnh từ file người dùng nạp vào', '', contextText.trim());
+  return out.join('\n');
+}
+
 // answers: { [round]: { [botId]: { answer } } } — dung prompt cho 1 bot o 1 vong.
-export function buildPrompt({ topic, round, botId, answers }) {
+// contextText (tu file nguoi dung nap/keo-tha vao) chi dinh o VONG 1 va buoc
+// tong hop — vong 2/3 da co ngu canh la bai vong truoc.
+export function buildPrompt({ topic, round, botId, answers, contextText }) {
   const bot = BOT_BY_ID[botId];
   const goal = (topic.goal || '').trim() || topic.title;
   let role, task, form, context = '';
@@ -104,10 +166,13 @@ export function buildPrompt({ topic, round, botId, answers }) {
     context = `\n\n=== BÀI GỐC CỦA BẠN (VÒNG 1) ===\n${mine}\n\n=== PHẢN BIỆN VỀ BÀI CỦA BẠN (VÒNG 2) ===\n${critique}\n`;
   }
 
+  const userContext = round === 1 && contextText && contextText.trim()
+    ? `\n\n=== NGỮ CẢNH TỪ FILE NGƯỜI DÙNG CUNG CẤP ===\n${contextText.trim().slice(0, 12000)}\n`
+    : '';
   return `[HỘI ĐỒNG — Chủ đề: ${topic.title} — Vòng ${round}/3 — ${bot.name} — ${role}]
 Mục tiêu chung: ${goal}
 Tiêu chí chấm:
-${criteriaLines(topic.criteriaText)}${context}
+${criteriaLines(topic.criteriaText)}${context}${userContext}
 Nhiệm vụ vòng này: ${task}
 Trả lời ĐÚNG form dưới đây, dưới 800 chữ cho phần chính (trừ phần căn cứ ngắn):
 ${form}
@@ -140,7 +205,7 @@ export const FORM_SYNTH = `## Kết luận cuối cùng
 // Prompt cho buoc tong hop cuoi cung (tab Muse). Dau vao: ban SUA CUOI
 // (vong 3) cua ca 4 bot la chinh, kem phan bien vong 2 de Muse thay diem nao
 // da bi bat be va cach cac bot cham diem nhau.
-export function buildSynthesisPrompt({ topic, answers }) {
+export function buildSynthesisPrompt({ topic, answers, contextText }) {
   const goal = (topic.goal || '').trim() || topic.title;
   const finalText = BOTS
     .map((b) => `--- BẢN CUỐI (VÒNG 3) CỦA ${b.name.toUpperCase()} ---\n${(answers[3]?.[b.id]?.answer || '').trim() || '(chưa có đáp án)'}`)
@@ -151,7 +216,7 @@ export function buildSynthesisPrompt({ topic, answers }) {
   return `[HỘI ĐỒNG — Chủ đề: ${topic.title} — BƯỚC TỔNG HỢP CUỐI CÙNG — Muse]
 Mục tiêu chung: ${goal}
 Tiêu chí chấm:
-${criteriaLines(topic.criteriaText)}
+${criteriaLines(topic.criteriaText)}${contextText && contextText.trim() ? `\n\n=== NGỮ CẢNH TỪ FILE NGƯỜI DÙNG CUNG CẤP ===\n${contextText.trim().slice(0, 12000)}\n` : ''}
 
 Vai của bạn: NGƯỜI TỔNG HỢP CUỐI CÙNG của hội đồng. Bạn không phải thành viên tranh luận thứ 5 và không viết thêm một phương án riêng cạnh tranh với 4 bài dưới đây. Việc của bạn là đọc cả 4 bản cuối + các phản biện, rồi CHỐT một kết luận chung cho người dùng.
 Quy tắc tổng hợp:
