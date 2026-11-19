@@ -4,7 +4,7 @@
 // duoc luu tren dia, tat app mo lai van con. App chi mo/an cac view va xu ly
 // clipboard + luu file; viec dan prompt, bam Gui, copy dap an van do nguoi
 // dung lam tay trong tung trang chatbot (ban tu dong, dung chinh sach).
-const { app, BrowserWindow, WebContentsView, ipcMain, clipboard, dialog, session } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, clipboard, dialog, session, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -23,12 +23,32 @@ const views = new Map(); // id -> WebContentsView
 // rat hay chan o buoc xac thuc bot. Bo chu Electron di giup qua duoc nhieu
 // truong hop hon, nhung khong dam bao 100% vi Cloudflare con kiem tra dau van
 // tay trinh duyet khac.
-const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+// Phien ban Chrome trong UA PHAI khop voi Chromium that dang chay (Cloudflare
+// so sanh UA voi header sec-ch-ua va navigator.userAgentData; lech la bi chan).
+const CHROME_MAJOR = String(process.versions.chrome || '').split('.')[0] || '156';
+const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_MAJOR}.0.0.0 Safari/537.36`;
+
+// Ap UA cho moi noi (ke ca iframe xac minh challenges.cloudflare.com, service
+// worker) va tat dau hieu tu dong hoa (navigator.webdriver).
+app.userAgentFallback = CHROME_UA;
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+
+const AUTH_HOSTS = /(^|\.)(accounts\.google\.com|google\.com|login\.microsoftonline\.com|login\.live\.com|microsoft\.com|appleid\.apple\.com|apple\.com|auth0\.com|openai\.com|chatgpt\.com|claude\.ai|anthropic\.com)$/i;
+function safeHost(u) { try { return new URL(u).hostname; } catch (_) { return ''; } }
 
 function getOrCreateView(bot) {
   if (views.has(bot.id)) return views.get(bot.id);
   const ses = session.fromPartition(`persist:council-${bot.id}`);
   ses.setUserAgent(CHROME_UA);
+  // Google tu choi dang nhap tu trinh duyet nhung (hien "This browser or app
+  // may not be secure"). Rieng accounts.google.com, bo cac header client-hint
+  // de lo dau hieu Electron di.
+  ses.webRequest.onBeforeSendHeaders({ urls: ['https://accounts.google.com/*'] }, (details, cb) => {
+    const h = details.requestHeaders;
+    h['User-Agent'] = CHROME_UA;
+    for (const k of Object.keys(h)) if (/^sec-ch-ua/i.test(k)) delete h[k];
+    cb({ requestHeaders: h });
+  });
   const view = new WebContentsView({
     webPreferences: {
       session: ses,
@@ -37,6 +57,27 @@ function getOrCreateView(bot) {
     },
   });
   view.webContents.setUserAgent(CHROME_UA);
+
+  // Dang nhap bang Google/Microsoft/Apple thuong mo popup (window.open) va
+  // popup nay can dung CHUNG session de cookie dang nhap quay ve trang chinh.
+  // Cac link thuong (khong phai popup dang nhap) mo bang trinh duyet he thong.
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    if (AUTH_HOSTS.test(safeHost(url))) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 520,
+          height: 720,
+          autoHideMenuBar: true,
+          webPreferences: { session: ses, contextIsolation: true, nodeIntegration: false },
+        },
+      };
+    }
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  view.webContents.on('did-create-window', (child) => child.webContents.setUserAgent(CHROME_UA));
+
   view.webContents.loadURL(bot.url);
   views.set(bot.id, view);
   return view;
