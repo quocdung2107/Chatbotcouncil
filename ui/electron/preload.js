@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('councilFs', {
   appendActivity: (sessionDir, text) => ipcRenderer.invoke('fs:append-activity', { sessionDir, text }),
   listSessionFiles: (sessionDir) => ipcRenderer.invoke('fs:list-session-files', { sessionDir }),
   readSessionJson: (sessionDir) => ipcRenderer.invoke('fs:read-session-json', { sessionDir }),
+  openSessionDialog: () => ipcRenderer.invoke('fs:open-session-dialog'),
   openContextDialog: () => ipcRenderer.invoke('fs:open-context-dialog'),
   readPath: (filePath) => ipcRenderer.invoke('fs:read-path', { filePath }),
   openPath: (targetPath) => ipcRenderer.invoke('fs:open-path', { targetPath }),

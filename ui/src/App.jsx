@@ -8,6 +8,7 @@ import {
   copyPromptRequested, pasteAnswerRequested, exportRequested,
   copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
   filesInitRequested, refreshFilesRequested, contextLoaded, recentFilesUpdated, logAdded,
+  openSessionRequested, dropAnswerFileRequested,
   selectRoundSavedCount, selectTotalSavedCount, STATUS,
 } from './store/councilSlice';
 import BotCard from './components/BotCard';
@@ -107,6 +108,30 @@ export default function App() {
     }
   };
 
+  // Tha file len THE BOT: noi dung file tro thanh dap an cua bot do o vong
+  // hien tai (saga ghi vao thu muc cua bot). Tha len the Muse thi thanh ket
+  // luan tong hop. Tha ra ngoai the (xu ly o handleDrop) thi lam ngu canh.
+  const handleBotDrop = async (botId, file) => {
+    if (!/\.(txt|md|json)$/i.test(file.name)) {
+      dispatch(logAdded(`Bỏ qua file "${file.name}" — chỉ nhận file .txt/.md/.json lên thẻ bot.`));
+      return;
+    }
+    const fsx = window.councilFs;
+    try {
+      const filePath = fsx?.getDroppedFilePath ? fsx.getDroppedFilePath(file) : '';
+      if (fsx?.readPath && filePath) {
+        const result = await fsx.readPath(filePath);
+        if (!result?.ok) { dispatch(logAdded(`Không đọc được file "${file.name}": ${result?.error || 'lỗi không rõ'}`)); return; }
+        dispatch(dropAnswerFileRequested({ botId, name: result.name, path: result.path, text: result.content }));
+        if (result.recentFiles) dispatch(recentFilesUpdated(result.recentFiles));
+      } else {
+        dispatch(dropAnswerFileRequested({ botId, name: file.name, path: '', text: await file.text() }));
+      }
+    } catch (err) {
+      dispatch(logAdded(`Không đọc được file "${file.name}": ${String(err)}`));
+    }
+  };
+
   return (
     <div
       className="app"
@@ -133,7 +158,7 @@ export default function App() {
         </div>
       </header>
 
-      {phase !== 'setup' && <RoundStepper round={round} savedCounts={savedCounts} phase={phase} synthesisSaved={synthesis?.status === STATUS.saved} />}
+      {phase !== 'setup' && <RoundStepper round={round} savedCounts={savedCounts} phase={phase} synthesisSaved={synthesis?.status === STATUS.saved} mode={topic.mode} />}
 
       <div className="main-row">
         {phase === 'setup' ? (
@@ -168,6 +193,17 @@ export default function App() {
                 placeholder={'Đúng trọng tâm\nCó căn cứ kiểm chứng được\nKhả thi với nguồn lực hiện tại'}
               />
             </label>
+            <div className="mode-picker">
+              <div className="mode-picker-title">Chế độ thảo luận</div>
+              <label className="mode-option">
+                <input type="radio" name="council-mode" checked={topic.mode !== 'fast'} onChange={() => dispatch(topicChanged({ field: 'mode', value: 'deep' }))} />
+                <span><strong>3 vòng đầy đủ</strong> (mặc định, khuyên dùng) — đề xuất mù → phản biện chéo ẩn danh → sửa bài. Chất lượng cao nhất cho chủ đề khó.</span>
+              </label>
+              <label className="mode-option">
+                <input type="radio" name="council-mode" checked={topic.mode === 'fast'} onChange={() => dispatch(topicChanged({ field: 'mode', value: 'fast' }))} />
+                <span><strong>1 lượt nối tiếp</strong> (chỉ dùng cho chủ đề dễ) — bot sau đọc bài bot trước rồi bổ sung/sửa, xong sang tổng hợp ngay. Nhanh hơn nhưng mất phần phản biện chéo.</span>
+              </label>
+            </div>
             <button type="button" className="primary big" disabled={!topic.title.trim()} onClick={() => dispatch(startSession())}>
               Bắt đầu phiên hội đồng
             </button>
@@ -212,6 +248,7 @@ export default function App() {
                   onReload={() => apiCall('reloadBot', bot.id)}
                   onNewSession={() => apiCall('newSession', bot.id)}
                   browserMode={!isElectron}
+                  onDropFile={handleBotDrop}
                 />
               ))}
 
@@ -230,6 +267,7 @@ export default function App() {
                 onNewSession={() => apiCall('newSession', 'muse')}
                 browserMode={!isElectron}
                 synth
+                onDropFile={handleBotDrop}
               />
 
               <FilesPanel />

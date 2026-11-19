@@ -26,8 +26,9 @@ function emptyFiles() {
     contextPath: '',
     contextText: '',
     recentFiles: [], // file gan day (main process luu ben)
+    recentSessions: [], // phien gan day (main process luu JSON duoi userData)
     history: [], // cac phien cu quet tu workDir: {dir, folder, title, savedCount, hasSynthesis, updatedAt}
-    sessionFiles: [], // file trong thu muc phien: {name, path, size, mtime, lines}
+    sessionFiles: [], // file trong thu muc phien: {name, path, size, mtime, lines} — name la duong dan tuong doi, vd "01-chatgpt/vong-1.md"
   };
 }
 
@@ -36,7 +37,9 @@ function timeNow() {
 }
 
 const initialState = {
-  topic: { title: '', goal: '', criteriaText: '' },
+  // mode: 'deep' (mac dinh) = 3 vong day du; 'fast' (opt-in cho chu de de)
+  // = 1 luot noi tiep, bot sau doc bai bot truoc roi bo sung/sua.
+  topic: { title: '', goal: '', criteriaText: '', mode: 'deep' },
   phase: 'setup', // setup | running | synthesis | done
   round: 1,
   activeBotId: 'chatgpt',
@@ -140,9 +143,10 @@ const councilSlice = createSlice({
     },
     // ---- Workflow file (goi day du) ----
     filesStateLoaded(state, action) {
-      const { workDir, recentFiles, history } = action.payload || {};
+      const { workDir, recentFiles, recentSessions, history } = action.payload || {};
       if (workDir) state.files.workDir = workDir;
       if (Array.isArray(recentFiles)) state.files.recentFiles = recentFiles;
+      if (Array.isArray(recentSessions)) state.files.recentSessions = recentSessions;
       if (Array.isArray(history)) state.files.history = history;
     },
     workDirChanged(state, action) {
@@ -197,8 +201,8 @@ const councilSlice = createSlice({
     },
     resetAll(state) {
       // Giu lai thu muc lam viec + lich su file (cai dat cua may, khong phai cua phien).
-      const { workDir, recentFiles, history } = state.files;
-      return { ...initialState, files: { ...emptyFiles(), workDir, recentFiles, history } };
+      const { workDir, recentFiles, recentSessions, history } = state.files;
+      return { ...initialState, files: { ...emptyFiles(), workDir, recentFiles, recentSessions, history } };
     },
     // Cac action duoi day do Saga xu ly (khong doi state truc tiep):
     copyPromptRequested() {},
@@ -210,6 +214,8 @@ const councilSlice = createSlice({
     chooseWorkDirRequested() {},
     loadContextRequested() {},
     restoreSessionRequested() {},
+    openSessionRequested() {},
+    dropAnswerFileRequested() {},
     refreshFilesRequested() {},
   },
 });
@@ -225,7 +231,8 @@ export const {
   copyPromptRequested, pasteAnswerRequested, exportRequested,
   copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
   filesInitRequested, chooseWorkDirRequested, loadContextRequested,
-  restoreSessionRequested, refreshFilesRequested,
+  restoreSessionRequested, openSessionRequested, dropAnswerFileRequested,
+  refreshFilesRequested,
 } = councilSlice.actions;
 
 export default councilSlice.reducer;

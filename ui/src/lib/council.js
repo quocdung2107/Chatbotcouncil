@@ -75,9 +75,24 @@ function criteriaLines(criteriaText) {
 }
 
 // ---- Workflow file: ten thu muc / ten file cua 1 phien hoi dong ----
-// Moi phien la 1 thu muc trong thu muc lam viec; moi dap an la 1 file rieng
-// (giu nguyen 3 vong: <bot>-vong-<1..3>.md), kem file yeu cau, file huong
-// dan chung ("training" bang briefing), file tien trinh va phien.json.
+// Moi phien la 1 thu muc trong thu muc lam viec HoiDong/ tren Windows:
+//   HoiDong/<chu-de-slug>/
+//     00-yeu-cau.md, 00-huong-dan-chung.md, phien.json, tien-trinh.md,
+//     logs/activity.jsonl, ket-qua-hoi-dong.md
+//     01-chatgpt/vong-1.md, vong-2.md, vong-3.md
+//     02-claude/vong-1.md, ...  03-gemini/...  04-copilot/...
+//     05-muse/ket-luan-cuoi.md
+// Moi dap an la 1 file rieng trong thu muc cua bot do; giu nguyen 3 vong.
+// Cung 1 chu de = cung 1 thu muc (chay lai chu de cu se ghi de dap an moi,
+// lich su van con trong tien-trinh.md + logs/activity.jsonl).
+export const BOT_FOLDER = {
+  chatgpt: '01-chatgpt',
+  claude: '02-claude',
+  gemini: '03-gemini',
+  copilot: '04-copilot',
+};
+export const SYNTH_FOLDER = '05-muse';
+
 export function slugifyTopic(title) {
   const slug = String(title || '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -87,18 +102,15 @@ export function slugifyTopic(title) {
   return slug || 'chu-de';
 }
 
-export function sessionFolderName(title, date = new Date()) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}-${slugifyTopic(title)}`;
+export function sessionFolderName(title) {
+  return slugifyTopic(title);
 }
 
 export function sessionFileName(botId, round) {
-  return `${botId}-vong-${round}.md`;
+  return `${BOT_FOLDER[botId]}/vong-${round}.md`;
 }
 
-export const SYNTH_FILE_NAME = 'muse-tong-hop.md';
+export const SYNTH_FILE_NAME = `${SYNTH_FOLDER}/ket-luan-cuoi.md`;
 export const SESSION_JSON_NAME = 'phien.json';
 
 // File "huong dan chung" — cach "training" cac chatbot web mien phi: khong
@@ -125,6 +137,27 @@ ${roles}
 - Nêu căn cứ cho luận điểm chính; không chắc thì ghi vào mục Rủi ro / Cần kiểm chứng, không bịa.
 - Độ tin cậy phải thành thật (Cao / Trung bình / Thấp kèm lý do).
 - Không lặp lại phần đã đúng của người khác; tập trung vào nhiệm vụ của vòng.
+
+## Ví dụ mẫu (đúng form vòng 1 — chỉ là mẫu hình thức, không phải nội dung)
+Chủ đề mẫu: "Nên chọn hướng A hay B cho sản phẩm X?"
+${FORM_V1}
+
+Ví dụ điền:
+## Kết luận ngắn
+Chọn hướng A vì làm được ngay trong 2 tuần với nguồn lực hiện có.
+
+## Luận điểm chính
+1. Hướng A dùng được công cụ sẵn có — căn cứ: đội đã dùng công cụ đó 6 tháng.
+2. Hướng B cần thêm 1 người mới — căn cứ: ước tính trong bảng nhân sự tuần trước.
+
+## Rủi ro / điểm chưa chắc
+- Chưa chắc khách hàng có chấp nhận bản rút gọn của hướng A không.
+
+## Độ tin cậy
+Trung bình — vì: chưa có phản hồi trực tiếp từ khách hàng.
+
+## Cần kiểm chứng thêm
+- Hỏi 3 khách hàng hiện tại về bản rút gọn trước khi chốt.
 `;
 }
 
@@ -140,12 +173,26 @@ export function buildRequestText(topic, contextText) {
 export function buildPrompt({ topic, round, botId, answers, contextText }) {
   const bot = BOT_BY_ID[botId];
   const goal = (topic.goal || '').trim() || topic.title;
+  // Che do: 'deep' (mac dinh) = 3 vong day du; 'fast' (opt-in cho chu de de)
+  // = 1 luot noi tiep: bot sau doc bai bot truoc trong cung vong 1 roi bo
+  // sung/sua, xong thang sang buoc tong hop — khong co vong 2/3.
+  const mode = topic.mode === 'fast' ? 'fast' : 'deep';
   let role, task, form, context = '';
 
   if (round === 1) {
     role = ROLES_V1[botId];
-    task = `Vai của bạn vòng này: ${role}. Hãy đề xuất phương án của riêng bạn, không cần biết các bot khác nghĩ gì.`;
-    form = FORM_V1;
+    if (mode === 'fast') {
+      const prev = BOTS.filter((b) => BOTS.indexOf(b) < BOTS.findIndex((x) => x.id === botId));
+      const prevText = prev
+        .map((b) => `--- Bài của ${b.name} (trước bạn trong chuỗi) ---\n${(answers[1]?.[b.id]?.answer || '').trim() || '(chưa có)'}`)
+        .join('\n\n');
+      task = `Vai của bạn vòng này: ${role}. CHẾ ĐỘ NHANH (1 lượt nối tiếp): đọc các bài trước trong chuỗi, GIỮ phần nào đúng, BỔ SUNG phần còn thiếu và SỬA phần bạn thấy sai (nói rõ vì sao), rồi đưa bản hoàn chỉnh của bạn. Bot đầu chuỗi thì đề xuất độc lập như thường.`;
+      form = FORM_V1;
+      context = prev.length ? `\n\n=== CÁC BÀI TRƯỚC TRONG CHUỖI (chế độ nhanh) ===\n${prevText}\n` : '';
+    } else {
+      task = `Vai của bạn vòng này: ${role}. Hãy đề xuất phương án của riêng bạn, không cần biết các bot khác nghĩ gì.`;
+      form = FORM_V1;
+    }
   } else if (round === 2) {
     role = 'Người phản biện (ẩn danh)';
     const targetId = CRITIQUE_OF[botId];
@@ -169,7 +216,8 @@ export function buildPrompt({ topic, round, botId, answers, contextText }) {
   const userContext = round === 1 && contextText && contextText.trim()
     ? `\n\n=== NGỮ CẢNH TỪ FILE NGƯỜI DÙNG CUNG CẤP ===\n${contextText.trim().slice(0, 12000)}\n`
     : '';
-  return `[HỘI ĐỒNG — Chủ đề: ${topic.title} — Vòng ${round}/3 — ${bot.name} — ${role}]
+  const totalRounds = mode === 'fast' ? 1 : 3;
+  return `[HỘI ĐỒNG — Chủ đề: ${topic.title} — Vòng ${round}/${totalRounds}${mode === 'fast' ? ' (chế độ nhanh)' : ''} — ${bot.name} — ${role}]
 Mục tiêu chung: ${goal}
 Tiêu chí chấm:
 ${criteriaLines(topic.criteriaText)}${context}${userContext}
@@ -207,12 +255,15 @@ export const FORM_SYNTH = `## Kết luận cuối cùng
 // da bi bat be va cach cac bot cham diem nhau.
 export function buildSynthesisPrompt({ topic, answers, contextText }) {
   const goal = (topic.goal || '').trim() || topic.title;
+  // Che do nhanh: ban cuoi la vong 1 noi tiep, khong co phan bien vong 2.
+  const lastRound = topic.mode === 'fast' ? 1 : 3;
   const finalText = BOTS
-    .map((b) => `--- BẢN CUỐI (VÒNG 3) CỦA ${b.name.toUpperCase()} ---\n${(answers[3]?.[b.id]?.answer || '').trim() || '(chưa có đáp án)'}`)
+    .map((b) => `--- BẢN CUỐI (VÒNG ${lastRound}) CỦA ${b.name.toUpperCase()} ---\n${(answers[lastRound]?.[b.id]?.answer || '').trim() || '(chưa có đáp án)'}`)
     .join('\n\n');
-  const critiqueText = BOTS
-    .map((b) => `--- PHẢN BIỆN (VÒNG 2) CỦA ${b.name.toUpperCase()} ---\n${(answers[2]?.[b.id]?.answer || '').trim() || '(chưa có đáp án)'}`)
-    .join('\n\n');
+  const critiqueText = topic.mode === 'fast' ? '(chế độ nhanh: không có vòng phản biện riêng)'
+    : BOTS
+      .map((b) => `--- PHẢN BIỆN (VÒNG 2) CỦA ${b.name.toUpperCase()} ---\n${(answers[2]?.[b.id]?.answer || '').trim() || '(chưa có đáp án)'}`)
+      .join('\n\n');
   return `[HỘI ĐỒNG — Chủ đề: ${topic.title} — BƯỚC TỔNG HỢP CUỐI CÙNG — Muse]
 Mục tiêu chung: ${goal}
 Tiêu chí chấm:
@@ -241,6 +292,8 @@ export function buildExportMarkdown(state) {
   const out = [`# Kết quả Chat Hội Đồng — ${topic.title}`, ''];
   if (topic.goal) out.push(`Mục tiêu: ${topic.goal}`, '');
   for (const round of [1, 2, 3]) {
+    const hasAny = BOTS.some((bot) => (answers[round]?.[bot.id]?.answer || '').trim());
+    if (!hasAny) continue; // che do nhanh chi co vong 1 — khong xuat vong trong
     out.push(`## Vòng ${round}`, '');
     for (const bot of BOTS) {
       const ans = (answers[round]?.[bot.id]?.answer || '').trim();

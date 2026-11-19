@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { STATUS } from '../store/councilSlice';
 
 export const STATUS_LABEL = {
@@ -11,9 +11,21 @@ export const STATUS_LABEL = {
 // The trang thai + cac nut thao tac cua 1 bot trong vong hien tai.
 // Quy trinh ban tu dong: Copy prompt -> (dan + Gui bang tay trong tab) ->
 // "Da gui" -> copy dap an trong tab -> "Dan dap an ve".
-export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent, onPaste, onSave, onEdit, onReload, onNewSession, browserMode, synth }) {
+export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent, onPaste, onSave, onEdit, onReload, onNewSession, browserMode, synth, onDropFile }) {
+  const [dragOver, setDragOver] = useState(false);
   return (
-    <div className={`bot-card ${isActive ? 'active' : ''}`} onClick={onSelect}>
+    <div
+      className={`bot-card ${isActive ? 'active' : ''} ${dragOver ? 'drop-target' : ''}`}
+      onClick={onSelect}
+      onDragOver={(e) => { if (onDropFile) { e.preventDefault(); e.stopPropagation(); setDragOver(true); } }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        if (!onDropFile) return;
+        e.preventDefault(); e.stopPropagation(); setDragOver(false);
+        const file = e.dataTransfer?.files?.[0];
+        if (file) onDropFile(bot.id, file);
+      }}
+    >
       <div className="bot-card-head">
         <span className="bot-dot" style={{ background: bot.color }} />
         <span className="bot-name">{bot.name}</span>
@@ -50,6 +62,9 @@ export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent,
             <button type="button" onClick={onSave} disabled={!cell.answer.trim()}>Lưu đáp án</button>
             <span className="char-count">{cell.answer.length} ký tự</span>
           </div>
+          {onDropFile && (
+            <div className="drop-hint">Kéo-thả file .txt/.md/.json lên thẻ này để lưu/xem đáp án của {bot.name} ở vòng hiện tại.</div>
+          )}
         </div>
       )}
     </div>

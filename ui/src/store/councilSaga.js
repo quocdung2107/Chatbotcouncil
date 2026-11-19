@@ -8,7 +8,8 @@ import {
   copyPromptRequested, pasteAnswerRequested, exportRequested,
   copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
   filesInitRequested, chooseWorkDirRequested, loadContextRequested,
-  restoreSessionRequested, refreshFilesRequested,
+  restoreSessionRequested, openSessionRequested, dropAnswerFileRequested,
+  refreshFilesRequested,
   promptCopied, answerPasted, saveAnswer, nextRound, finishSession,
   synthesisPromptCopied, synthesisAnswerPasted, synthesisSaved,
   startSession,
@@ -116,11 +117,14 @@ function* afterSaveSaga(action) {
   const state = yield select();
   if (state.council.phase !== 'running') return;
   if (!selectRoundComplete(state, state.council.round)) return;
+  // Che do nhanh (opt-in): chi co vong 1 noi tiep — du 4/4 la sang tong hop
+  // ngay, khong co vong 2/3. Mac dinh (deep) giu nguyen 3 vong.
+  if (state.council.topic.mode === 'fast') { yield put(finishSession()); return; }
   if (state.council.round < 3) yield put(nextRound());
   else yield put(finishSession());
 }
 
-// 3b) Luu ket luan tong hop -> ghi file muse-tong-hop.md + ban xuat day du.
+// 3b) Luu ket luan tong hop -> ghi file 05-muse/ket-luan-cuoi.md + ban xuat day du.
 function* afterSynthesisSaga() {
   const state = yield select(selectCouncil);
   if (!state.synthesis.answer?.trim()) return;
@@ -165,11 +169,13 @@ function* exportSaga() {
 }
 
 // 5) Copy prompt TONG HOP CUOI (tab Muse) — gom ban cuoi vong 3 + phan bien vong 2
+// (che do nhanh: gom ban cuoi cua luot noi tiep vong 1).
 function* copySynthesisPromptSaga() {
   const state = yield select(selectCouncil);
   const fullState = yield select();
-  if (!selectRoundComplete(fullState, 3)) {
-    yield put(logAdded('Chưa đủ đáp án vòng 3 — Muse chỉ tổng hợp SAU khi cả 4 bot đã sửa bài xong. Bạn có thể mở tab Muse trước để đăng nhập sẵn.'));
+  const lastRound = state.topic.mode === 'fast' ? 1 : 3;
+  if (!selectRoundComplete(fullState, lastRound)) {
+    yield put(logAdded(`Chưa đủ đáp án vòng ${lastRound} — Muse chỉ tổng hợp SAU khi cả 4 bot đã xong. Bạn có thể mở tab Muse trước để đăng nhập sẵn.`));
     return;
   }
   const prompt = buildSynthesisPrompt({ topic: state.topic, answers: state.answers, contextText: state.files.contextText });
@@ -269,6 +275,44 @@ function* restoreSessionSaga(action) {
   if (listed?.files) yield put(sessionFilesUpdated(listed.files));
 }
 
+// Mo phien cu bang hop thoai chon file (phien.json khoi phuc toan bo phien;
+// file .md thi nap lam ngu canh de xem/dung lai noi dung do).
+function* openSessionSaga() {
+  const fsx = getFs();
+  if (!fsx?.openSessionDialog) return;
+  const result = yield call(fsx.openSessionDialog);
+  if (!result?.ok) {
+    if (result?.error) yield put(logAdded(`Không mở được file: ${result.error}`));
+    return;
+  }
+  if (result.kind === 'session') {
+    const data = result.data;
+    data.files = { ...(data.files || {}), sessionDir: result.sessionDir, sessionFolder: result.sessionDir.split(/[\\/]/).pop() };
+    yield put(sessionRestored(data));
+    yield call(fsx.watchSession, result.sessionDir);
+    const listed = yield call(fsx.listSessionFiles, result.sessionDir);
+    if (listed?.files) yield put(sessionFilesUpdated(listed.files));
+  } else if (result.kind === 'markdown') {
+    yield put(contextLoaded({ name: result.name, path: result.path, text: result.content }));
+    if (result.recentFiles) yield put(recentFilesUpdated(result.recentFiles));
+  }
+}
+
+// Tha file len THE BOT: noi dung file tro thanh dap an cua bot do o vong
+// hien tai (ghi thang vao thu muc cua bot: 01-chatgpt/vong-N.md...). Tha
+// len the Muse thi tro thanh ket luan tong hop.
+function* dropAnswerFileSaga(action) {
+  const { botId, name, text } = action.payload || {};
+  if (!botId || !text || !String(text).trim()) return;
+  if (botId === 'muse') {
+    yield put(synthesisAnswerPasted(String(text)));
+    yield put(logAdded(`Đã nhận kết luận tổng hợp từ file "${name}" thả lên thẻ Muse.`));
+    return;
+  }
+  yield put(answerPasted({ botId, answer: String(text) }));
+  yield put(logAdded(`Đã nhận đáp án từ file "${name}" thả lên thẻ ${botId} — đã ghi vào thư mục của bot.`));
+}
+
 function* refreshFilesSaga() {
   const fsx = getFs();
   if (!fsx?.getState) return;
@@ -297,6 +341,8 @@ export default function* rootSaga() {
     takeEvery(chooseWorkDirRequested.type, chooseWorkDirSaga),
     takeEvery(loadContextRequested.type, loadContextSaga),
     takeEvery(restoreSessionRequested.type, restoreSessionSaga),
+    takeEvery(openSessionRequested.type, openSessionSaga),
+    takeEvery(dropAnswerFileRequested.type, dropAnswerFileSaga),
     takeEvery(refreshFilesRequested.type, refreshFilesSaga),
   ]);
 }

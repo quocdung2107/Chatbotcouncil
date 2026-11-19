@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { BOTS, SYNTH_BOT, sessionFileName, SYNTH_FILE_NAME } from '../lib/council';
 import {
   chooseWorkDirRequested, loadContextRequested, restoreSessionRequested,
+  openSessionRequested,
   refreshFilesRequested, contextLoaded, contextCleared, recentFilesUpdated,
   historyUpdated, logAdded,
 } from '../store/councilSlice';
@@ -82,6 +83,7 @@ export default function FilesPanel() {
         <span className="files-label">Thư mục làm việc:</span>
         <button type="button" onClick={() => dispatch(chooseWorkDirRequested())}>Đổi…</button>
         <button type="button" disabled={!files.workDir} onClick={() => openPath(files.workDir)}>Mở Explorer</button>
+        <button type="button" onClick={() => dispatch(openSessionRequested())}>Mở phiên (.json)…</button>
       </div>
       <div className="files-path" title={files.workDir}>{files.workDir || '(đang tải…)'}</div>
 
@@ -140,7 +142,7 @@ export default function FilesPanel() {
           </details>
         </>
       ) : (
-        <p className="files-note">Bắt đầu 1 chủ đề, app sẽ tự tạo thư mục phiên (ngày + tên chủ đề) trong thư mục làm việc, kèm file yêu cầu và file hướng dẫn chung.</p>
+        <p className="files-note">Bắt đầu 1 chủ đề, app sẽ tự tạo thư mục phiên <code>HoiDong/&lt;tên-chủ-đề&gt;/</code> với thư mục riêng cho từng bot (01-chatgpt, 02-claude, 03-gemini, 04-copilot, 05-muse), kèm file yêu cầu và file hướng dẫn chung.</p>
       )}
 
       <div className="files-row">
@@ -167,10 +169,10 @@ export default function FilesPanel() {
         </details>
       )}
 
-      {files.history.length > 0 && (
+      {(files.history.length > 0 || files.recentSessions.length > 0) && (
         <details className="files-details">
-          <summary>Lịch sử phiên hội đồng ({files.history.length})</summary>
-          {files.history.map((h) => (
+          <summary>Lịch sử phiên hội đồng ({(files.history.length || files.recentSessions.length)})</summary>
+          {(files.history.length ? files.history : files.recentSessions).map((h) => (
             <div key={h.dir} className="file-item">
               <span className="file-name" title={h.dir}>{h.title}</span>
               <span className="file-meta">{h.savedCount}/12 đáp án{h.hasSynthesis ? ' · có tổng hợp' : ''} · {fmtTime(h.updatedAt)}</span>

@@ -18,8 +18,10 @@ function loadPersisted() {
     if (parsed.phase === 'done' && !parsed.synthesis.answer) parsed.phase = 'synthesis';
     // Phien luu tu ban cu chua co workflow file — bo sung mac dinh.
     if (!parsed.files) {
-      parsed.files = { workDir: '', sessionDir: '', sessionFolder: '', contextName: '', contextPath: '', contextText: '', recentFiles: [], history: [], sessionFiles: [] };
+      parsed.files = { workDir: '', sessionDir: '', sessionFolder: '', contextName: '', contextPath: '', contextText: '', recentFiles: [], recentSessions: [], history: [], sessionFiles: [] };
     }
+    if (!parsed.files.recentSessions) parsed.files.recentSessions = [];
+    if (parsed.topic && !parsed.topic.mode) parsed.topic.mode = 'deep';
     return { council: parsed };
   } catch (_) {
     return undefined;

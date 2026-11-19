@@ -46,22 +46,25 @@ Electron main process (`electron/fsApi.js`) — React chỉ gọi qua cầu nố
 được giữ nguyên** — workflow file chỉ bỏ phần gom bài/đặt tên/quản lý thủ công,
 không cắt vòng nào.
 
-- **Thư mục làm việc**: mặc định `Documents\ChatHoiDong`, đổi được bằng nút
-  "Đổi…" trong panel **File & tiến trình** (app nhớ lựa chọn). Mọi thao tác
-  ghi/xoá của app chỉ diễn ra *trong* thư mục này.
+- **Thư mục làm việc**: mặc định `Documents\HoiDong`, đổi được bằng nút
+  "Đổi…" trong panel **File & tiến trình** (app nhớ lựa chọn trong file JSON
+  dưới userData). Mọi thao tác ghi/xoá của app chỉ diễn ra *trong* thư mục này.
 - **Thư mục phiên**: bấm "Bắt đầu phiên hội đồng", app tự tạo thư mục
-  `YYYY-MM-DD-<tên-chủ-đề>` gồm sẵn:
+  `HoiDong\<tên-chủ-đề>/` gồm sẵn:
   - `00-yeu-cau.md` — chủ đề, mục tiêu, tiêu chí (+ ngữ cảnh nếu có nạp file)
   - `00-huong-dan-chung.md` — file "huấn luyện" của hội đồng: cách làm việc
-    3 vòng, vai từng bot, quy tắc form/độ tin cậy. Các chatbot web miễn phí
-    không fine-tune được, nên nội dung cốt lõi của file này được app đính vào
-    prompt vòng 1 của mỗi phiên mới.
-  - `<bot>-vong-<1..3>.md` — mỗi đáp án tự ghi thành 1 file riêng ngay khi bạn
-    bấm "Dán đáp án về" / "Lưu đáp án" (chatgpt/claude/gemini/copilot × 3 vòng)
-  - `muse-tong-hop.md` — kết luận tổng hợp cuối của Muse, và
+    3 vòng, vai từng bot, quy tắc form/độ tin cậy, kèm 1 ví dụ mẫu đúng form.
+    Các chatbot web miễn phí không fine-tune được, nên nội dung cốt lõi của
+    file này được app đính vào prompt vòng 1 của mỗi phiên mới.
+  - `01-chatgpt/`, `02-claude/`, `03-gemini/`, `04-copilot/` — mỗi bot một
+    thư mục riêng, trong đó `vong-1.md`, `vong-2.md`, `vong-3.md` tự ghi ngay
+    khi bạn bấm "Dán đáp án về" / "Lưu đáp án" (giữ nguyên 3 vòng × 4 bot)
+  - `05-muse/ket-luan-cuoi.md` — kết luận tổng hợp cuối của Muse, và
     `ket-qua-hoi-dong.md` — bản xuất toàn bộ phiên (nút "Xuất kết quả" cũng ghi
-    thẳng vào đây khi phiên đã có thư mục)
-  - `phien.json` — toàn bộ trạng thái phiên để **mở lại phiên cũ**
+    thẳng vào đây khi phiên đã có thư mục; tên file xuất mặc định theo ngày +
+    chủ đề khi dùng hộp thoại lưu)
+  - `phien.json` — toàn bộ trạng thái phiên để **mở lại phiên cũ** (từ danh
+    sách lịch sử hoặc nút "Mở phiên (.json)…" để chọn file)
   - `tien-trinh.md` + `logs/activity.jsonl` — lịch sử tiến trình của phiên
 - **Panel tiến trình theo file**: bảng 4 bot × 3 vòng + hàng Muse tổng hợp,
   tính theo file thật trong thư mục phiên (ô nào đã có file sẽ hiện ✓ kèm giờ
@@ -71,8 +74,15 @@ không cắt vòng nào.
   "Mở lại" để khôi phục đúng trạng thái từ `phien.json`).
 - **Nạp file ngữ cảnh**: bấm "Nạp file…" hoặc **kéo-thả file .txt/.md/.json/.csv
   thẳng vào cửa sổ app** — nội dung file tự đính vào prompt vòng 1 và prompt
-  tổng hợp, khỏi copy-paste. File ngoài thư mục làm việc chỉ được đọc khi chính
-  bạn chọn qua hộp thoại hoặc kéo-thả vào.
+  tổng hợp, khỏi copy-paste. **Thả file lên thẻ của một bot** thì nội dung file
+  đó trở thành đáp án của bot ở vòng hiện tại và được ghi vào thư mục của bot
+  (thả lên thẻ Muse thì thành kết luận tổng hợp). File ngoài thư mục làm việc
+  chỉ được đọc khi chính bạn chọn qua hộp thoại hoặc kéo-thả vào.
+- **Chế độ nhanh (opt-in, chỉ cho chủ đề dễ)**: ở màn hình tạo chủ đề, chọn
+  "1 lượt nối tiếp" — bot sau đọc bài bot trước trong cùng vòng 1 rồi bổ sung/
+  sửa, đủ 4/4 là sang tổng hợp ngay, không có vòng 2/3. Mặc định vẫn là
+  **3 vòng đầy đủ**; chế độ nhanh không thay thế 3 vòng vì đã được kiểm chứng
+  là vòng phản biện chéo mới tạo ra các lần tự sửa bài có giá trị.
 - **An toàn**: xoá file = đưa vào Recycle Bin (khôi phục được), ghi/xoá bị chặn
   ngoài thư mục làm việc, file đọc vào tối đa 2MB và chỉ nhận định dạng văn bản.
 - Chế độ trình duyệt (`npm run dev:renderer`): kéo-thả nạp ngữ cảnh vẫn dùng
