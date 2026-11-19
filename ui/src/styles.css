@@ -1,0 +1,62 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { font-family: "Segoe UI", system-ui, sans-serif; background: #f4f2ec; color: #23201b; }
+
+.app { display: flex; flex-direction: column; height: 100%; }
+.topbar { display: flex; align-items: center; gap: 16px; padding: 10px 16px; background: #2e2a24; color: #f7f3ea; }
+.brand { font-weight: 700; font-size: 17px; white-space: nowrap; }
+.topic-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.progress { font-size: 13px; opacity: 0.9; white-space: nowrap; }
+.mode-toggle { display: flex; border: 1px solid #6b6455; border-radius: 8px; overflow: hidden; }
+.mode-toggle button { background: transparent; color: #f7f3ea; border: 0; padding: 5px 10px; cursor: pointer; }
+.mode-toggle button.on { background: #f0b429; color: #23201b; font-weight: 600; }
+
+button { font: inherit; border: 1px solid #c9c2b2; background: #fffdf8; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: #a39a83; }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 600; }
+button.big { padding: 10px 18px; font-size: 15px; }
+
+.stepper { display: flex; gap: 10px; padding: 10px 16px 0; }
+.step { flex: 1; display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; border-radius: 10px; background: #e9e4d8; border: 1px solid #d8d1bf; }
+.step-current { background: #fdeec9; border-color: #f0b429; }
+.step-done { background: #dff3e2; border-color: #9ed3a7; }
+.step-no { font-weight: 700; }
+.step-name { font-size: 13px; }
+.step-count { margin-left: auto; font-size: 12px; opacity: 0.8; }
+
+.main-row { flex: 1; display: flex; gap: 12px; padding: 12px 16px 16px; min-height: 0; }
+.browser-area { flex: 1; border: 1px solid #d8d1bf; border-radius: 12px; background: #fffdf8; position: relative; overflow: hidden; }
+.browser-placeholder { padding: 18px; color: #6f675a; font-size: 14px; line-height: 1.5; }
+
+.sidebar { width: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.sidebar-title { font-weight: 700; font-size: 14px; margin-top: 4px; }
+
+.bot-card { background: #fffdf8; border: 1px solid #d8d1bf; border-radius: 12px; padding: 10px 12px; cursor: pointer; }
+.bot-card.active { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15); }
+.bot-card-head { display: flex; align-items: center; gap: 8px; }
+.bot-dot { width: 10px; height: 10px; border-radius: 50%; }
+.bot-name { font-weight: 700; }
+.status { margin-left: auto; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #eee9db; }
+.status-prompt_ready { background: #fdeec9; }
+.status-sent { background: #dbeafe; }
+.status-saved { background: #dff3e2; }
+.bot-card-body { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; cursor: default; }
+.btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.answer-box { width: 100%; font: inherit; font-size: 13px; border: 1px solid #c9c2b2; border-radius: 8px; padding: 8px; resize: vertical; }
+.char-count { font-size: 12px; color: #6f675a; }
+
+.log { background: #fffdf8; border: 1px solid #d8d1bf; border-radius: 12px; padding: 8px 12px; font-size: 12.5px; max-height: 220px; overflow-y: auto; }
+.log-item { padding: 3px 0; border-bottom: 1px dashed #eee7d6; }
+.log-item:last-child { border-bottom: 0; }
+.log-time { color: #8a8172; margin-right: 6px; }
+.log-empty { color: #8a8172; }
+
+.setup { max-width: 640px; margin: 24px auto; background: #fffdf8; border: 1px solid #d8d1bf; border-radius: 14px; padding: 24px 28px; display: flex; flex-direction: column; gap: 14px; height: fit-content; }
+.setup h1 { margin: 0; font-size: 22px; }
+.setup-note { margin: 0; color: #57503f; line-height: 1.55; font-size: 14px; }
+.setup label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 14px; }
+.setup input, .setup textarea { font: inherit; font-weight: 400; border: 1px solid #c9c2b2; border-radius: 8px; padding: 9px 10px; }
+
+.done-banner { margin: 0 16px 14px; background: #dff3e2; border: 1px solid #9ed3a7; border-radius: 10px; padding: 10px 14px; font-weight: 600; }
