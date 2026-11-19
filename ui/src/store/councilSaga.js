@@ -63,8 +63,20 @@ function* exportSaga() {
     const result = yield call(api.saveTextFile, 'ket-qua-hoi-dong.md', markdown);
     if (result?.saved) yield put(exportDone(result.path));
     else yield put(logAdded('Đã huỷ xuất file.'));
+  } else if (typeof document !== 'undefined') {
+    // Che do trinh duyet: tai file Markdown xuong nhu mot download thong thuong.
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ket-qua-hoi-dong.md';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    yield put(exportDone('ket-qua-hoi-dong.md (đã tải xuống bằng trình duyệt)'));
   } else {
-    yield put(logAdded('Xuất file cần chạy trong app Electron (trình duyệt chỉ xem giao diện).'));
+    yield put(logAdded('Không xuất được file trong môi trường này.'));
   }
 }
 

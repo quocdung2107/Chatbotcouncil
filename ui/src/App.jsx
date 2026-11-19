@@ -21,6 +21,9 @@ export default function App() {
   };
   const totalSaved = useSelector(selectTotalSavedCount);
   const browserRef = useRef(null);
+  // Dang chay trong Electron (co window.councilApi) hay trinh duyet thuong?
+  // Trinh duyet thuong khong nhung duoc chatbot — phai co nut mo tab that.
+  const isElectron = typeof window !== 'undefined' && !!window.councilApi;
 
   // Dong bo vi tri/kich thuoc cua khu vuc trinh duyet cho Electron main,
   // de cac WebContentsView nam dung cho tren giao dien React.
@@ -108,9 +111,21 @@ export default function App() {
           <>
             <section className="browser-area" ref={browserRef}>
               <div className="browser-placeholder">
-                {viewMode === 'tabs'
-                  ? `Đang hiển thị tab của ${BOTS.find((b) => b.id === activeBotId)?.name}. Lần đầu dùng, hãy đăng nhập chatbot ngay trong tab này — app sẽ nhớ đăng nhập cho lần sau.`
-                  : 'Đang hiển thị cả 4 chatbot trong lưới 2×2. Bấm vào thẻ bot ở cột phải để làm việc với từng bot.'}
+                {isElectron
+                  ? (viewMode === 'tabs'
+                    ? `Đang hiển thị tab của ${BOTS.find((b) => b.id === activeBotId)?.name}. Lần đầu dùng, hãy đăng nhập chatbot ngay trong tab này — app sẽ nhớ đăng nhập cho lần sau.`
+                    : 'Đang hiển thị cả 4 chatbot trong lưới 2×2. Bấm vào thẻ bot ở cột phải để làm việc với từng bot.')
+                  : (
+                    <div className="open-bots">
+                      <p><strong>Bạn đang chạy giao diện bằng trình duyệt thường</strong> nên các chatbot không nhúng trong khung này được (chỉ bản app Electron mới nhúng được, mà bản đó đang bị Cloudflare chặn ở bước xác thực). Hãy bấm nút của từng chatbot để mở tab thật, đăng nhập ngay trong tab đó:</p>
+                      <div className="open-bots-row">
+                        {BOTS.map((b) => (
+                          <a key={b.id} className="open-bot-btn" href={b.url} target="_blank" rel="noreferrer">Mở {b.name} ↗</a>
+                        ))}
+                      </div>
+                      <p>Luồng làm việc: bấm “Copy prompt” ở thẻ bot bên phải → sang tab chatbot vừa mở, dán (Ctrl+V) và bấm Gửi → copy đáp án → quay lại đây bấm “Dán đáp án về”. Panel này giữ prompt, form, trạng thái và tự chuyển vòng cho bạn.</p>
+                    </div>
+                  )}
               </div>
             </section>
 
@@ -130,6 +145,7 @@ export default function App() {
                   onEdit={(value) => dispatch(answerEdited({ botId: bot.id, answer: value }))}
                   onReload={() => apiCall('reloadBot', bot.id)}
                   onNewSession={() => apiCall('newSession', bot.id)}
+                  browserMode={!isElectron}
                 />
               ))}
 

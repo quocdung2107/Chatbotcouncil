@@ -60,3 +60,11 @@ button.big { padding: 10px 18px; font-size: 15px; }
 .setup input, .setup textarea { font: inherit; font-weight: 400; border: 1px solid #c9c2b2; border-radius: 8px; padding: 9px 10px; }
 
 .done-banner { margin: 0 16px 14px; background: #dff3e2; border: 1px solid #9ed3a7; border-radius: 10px; padding: 10px 14px; font-weight: 600; }
+
+.open-bots { max-width: 560px; }
+.open-bots p { margin: 0 0 12px; }
+.open-bots-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.open-bot-btn { display: inline-block; background: #2563eb; color: #fff; font-weight: 600; text-decoration: none; border-radius: 8px; padding: 9px 14px; }
+.open-bot-btn:hover { background: #1d4ed8; }
+.open-link { display: inline-block; border: 1px solid #2563eb; color: #2563eb; font-weight: 600; text-decoration: none; border-radius: 8px; padding: 6px 10px; }
+.open-link:hover { background: #eff4ff; }

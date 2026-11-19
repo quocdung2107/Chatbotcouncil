@@ -11,7 +11,7 @@ export const STATUS_LABEL = {
 // The trang thai + cac nut thao tac cua 1 bot trong vong hien tai.
 // Quy trinh ban tu dong: Copy prompt -> (dan + Gui bang tay trong tab) ->
 // "Da gui" -> copy dap an trong tab -> "Dan dap an ve".
-export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent, onPaste, onSave, onEdit, onReload, onNewSession }) {
+export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent, onPaste, onSave, onEdit, onReload, onNewSession, browserMode }) {
   return (
     <div className={`bot-card ${isActive ? 'active' : ''}`} onClick={onSelect}>
       <div className="bot-card-head">
@@ -22,10 +22,16 @@ export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent,
 
       {isActive && (
         <div className="bot-card-body" onClick={(e) => e.stopPropagation()}>
-          <div className="btn-row">
-            <button type="button" onClick={onNewSession} title="Nạp lại trang gốc của chatbot để bắt đầu chat mới">↺ Session mới</button>
-            <button type="button" onClick={onReload} title="Tải lại trang chatbot">⟳ Tải lại</button>
-          </div>
+          {browserMode ? (
+            <div className="btn-row">
+              <a className="open-link" href={bot.url} target="_blank" rel="noreferrer">Mở tab {bot.name} ↗</a>
+            </div>
+          ) : (
+            <div className="btn-row">
+              <button type="button" onClick={onNewSession} title="Nạp lại trang gốc của chatbot để bắt đầu chat mới">↺ Session mới</button>
+              <button type="button" onClick={onReload} title="Tải lại trang chatbot">⟳ Tải lại</button>
+            </div>
+          )}
           <div className="btn-row">
             <button type="button" className="primary" onClick={onCopy}>1 · Copy prompt vòng này</button>
           </div>
