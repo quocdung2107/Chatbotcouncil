@@ -2,12 +2,14 @@ import React from 'react';
 
 const ROUND_NAMES = { 1: 'Đề xuất mù', 2: 'Phản biện chéo ẩn danh', 3: 'Tác giả sửa bài' };
 
-// Thanh 3 vong tren dau man hinh: vong nao dang lam, moi vong da luu may dap an.
-export default function RoundStepper({ round, savedCounts, phase }) {
+// Thanh tien do tren dau man hinh: 3 vong tranh luan + buoc tong hop cuoi
+// o tab Muse.
+export default function RoundStepper({ round, savedCounts, phase, synthesisSaved }) {
+  const synthCls = phase === 'done' ? 'done' : phase === 'synthesis' ? 'current' : 'todo';
   return (
     <div className="stepper">
       {[1, 2, 3].map((r) => {
-        const cls = phase === 'done' || r < round ? 'done' : r === round ? 'current' : 'todo';
+        const cls = phase === 'done' || phase === 'synthesis' || r < round ? 'done' : r === round ? 'current' : 'todo';
         return (
           <div key={r} className={`step step-${cls}`}>
             <span className="step-no">Vòng {r}</span>
@@ -16,6 +18,11 @@ export default function RoundStepper({ round, savedCounts, phase }) {
           </div>
         );
       })}
+      <div className={`step step-${synthCls}`}>
+        <span className="step-no">Tổng hợp</span>
+        <span className="step-name">Muse chốt kết luận</span>
+        <span className="step-count">{synthesisSaved ? '1/1 kết luận' : '0/1 kết luận'}</span>
+      </div>
     </div>
   );
 }

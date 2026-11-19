@@ -12,6 +12,10 @@ function loadPersisted() {
     if (!raw) return undefined;
     const parsed = JSON.parse(raw);
     if (!parsed || !parsed.topic || !parsed.answers) return undefined;
+    // Phien luu tu ban cu chua co buoc tong hop Muse — bo sung mac dinh de
+    // khong hong phien dang lam do.
+    if (!parsed.synthesis) parsed.synthesis = { status: 'idle', answer: '' };
+    if (parsed.phase === 'done' && !parsed.synthesis.answer) parsed.phase = 'synthesis';
     return { council: parsed };
   } catch (_) {
     return undefined;

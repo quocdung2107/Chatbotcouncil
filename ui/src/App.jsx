@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { BOTS } from './lib/council';
+import { BOTS, SYNTH_BOT } from './lib/council';
 import {
   topicChanged, startSession, selectBot, setViewMode, markSent,
   answerEdited, saveAnswer, resetAll,
+  synthesisMarkSent, synthesisAnswerEdited, synthesisSaved,
   copyPromptRequested, pasteAnswerRequested, exportRequested,
-  selectRoundSavedCount, selectTotalSavedCount,
+  copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
+  selectRoundSavedCount, selectTotalSavedCount, STATUS,
 } from './store/councilSlice';
 import BotCard from './components/BotCard';
 import RoundStepper from './components/RoundStepper';
@@ -13,7 +15,7 @@ import RoundStepper from './components/RoundStepper';
 export default function App() {
   const dispatch = useDispatch();
   const council = useSelector((s) => s.council);
-  const { topic, phase, round, activeBotId, viewMode, answers, log } = council;
+  const { topic, phase, round, activeBotId, viewMode, answers, synthesis, log } = council;
   const savedCounts = {
     1: useSelector((s) => selectRoundSavedCount(s, 1)),
     2: useSelector((s) => selectRoundSavedCount(s, 2)),
@@ -70,7 +72,7 @@ export default function App() {
         </div>
       </header>
 
-      {phase !== 'setup' && <RoundStepper round={round} savedCounts={savedCounts} phase={phase} />}
+      {phase !== 'setup' && <RoundStepper round={round} savedCounts={savedCounts} phase={phase} synthesisSaved={synthesis?.status === STATUS.saved} />}
 
       <div className="main-row">
         {phase === 'setup' ? (
@@ -78,8 +80,10 @@ export default function App() {
             <h1>Tạo chủ đề hội đồng mới</h1>
             <p className="setup-note">
               4 chatbot miễn phí (ChatGPT, Claude, Gemini, Copilot) sẽ thảo luận 3 vòng:
-              đề xuất mù → phản biện chéo ẩn danh → tác giả sửa bài. Bạn là người dán prompt,
-              bấm Gửi và copy đáp án về — app lo phần prompt, form, trạng thái và tổng hợp.
+              đề xuất mù → phản biện chéo ẩn danh → tác giả sửa bài. Sau vòng 3, tab
+              Muse (đăng nhập bằng tài khoản Muse của bạn) sẽ đọc cả 4 bản cuối và
+              chốt KẾT LUẬN TỔNG HỢP cuối cùng. Bạn là người dán prompt,
+              bấm Gửi và copy đáp án về — app lo phần prompt, form và trạng thái.
             </p>
             <label>Chủ đề *
               <input
@@ -113,13 +117,13 @@ export default function App() {
               <div className="browser-placeholder">
                 {isElectron
                   ? (viewMode === 'tabs'
-                    ? `Đang hiển thị tab của ${BOTS.find((b) => b.id === activeBotId)?.name}. Lần đầu dùng, hãy đăng nhập chatbot ngay trong tab này — app sẽ nhớ đăng nhập cho lần sau.`
-                    : 'Đang hiển thị cả 4 chatbot trong lưới 2×2. Bấm vào thẻ bot ở cột phải để làm việc với từng bot.')
+                    ? `Đang hiển thị tab của ${[...BOTS, SYNTH_BOT].find((b) => b.id === activeBotId)?.name}. Lần đầu dùng, hãy đăng nhập ngay trong tab này — app sẽ nhớ đăng nhập cho lần sau.`
+                    : 'Đang hiển thị cả 4 chatbot trong lưới 2×2. Bấm vào thẻ bot ở cột phải để làm việc với từng bot. Tab Muse (tổng hợp) chỉ hiện ở chế độ 1 tab.')
                   : (
                     <div className="open-bots">
                       <p><strong>Bạn đang chạy giao diện bằng trình duyệt thường</strong> nên các chatbot không nhúng trong khung này được (chỉ bản app Electron mới nhúng được, mà bản đó đang bị Cloudflare chặn ở bước xác thực). Hãy bấm nút của từng chatbot để mở tab thật, đăng nhập ngay trong tab đó:</p>
                       <div className="open-bots-row">
-                        {BOTS.map((b) => (
+                        {[...BOTS, SYNTH_BOT].map((b) => (
                           <a key={b.id} className="open-bot-btn" href={b.url} target="_blank" rel="noreferrer">Mở {b.name} ↗</a>
                         ))}
                       </div>
@@ -149,6 +153,23 @@ export default function App() {
                 />
               ))}
 
+              <div className="sidebar-title">Bước cuối — Tổng hợp (sau vòng 3)</div>
+              <BotCard
+                bot={SYNTH_BOT}
+                cell={synthesis || { status: STATUS.idle, answer: '' }}
+                isActive={activeBotId === 'muse'}
+                onSelect={() => dispatch(selectBot('muse'))}
+                onCopy={() => dispatch(copySynthesisPromptRequested())}
+                onSent={() => dispatch(synthesisMarkSent())}
+                onPaste={() => dispatch(pasteSynthesisAnswerRequested())}
+                onSave={() => dispatch(synthesisSaved())}
+                onEdit={(value) => dispatch(synthesisAnswerEdited(value))}
+                onReload={() => apiCall('reloadBot', 'muse')}
+                onNewSession={() => apiCall('newSession', 'muse')}
+                browserMode={!isElectron}
+                synth
+              />
+
               <div className="sidebar-title">Nhật ký thao tác</div>
               <div className="log">
                 {log.length === 0 && <div className="log-empty">Chưa có thao tác nào.</div>}
@@ -161,8 +182,11 @@ export default function App() {
         )}
       </div>
 
+      {phase === 'synthesis' && (
+        <div className="done-banner">🧭 Đã đủ 3 vòng — giờ tới bước TỔNG HỢP: chọn thẻ “Muse — Tổng hợp” ở cột phải, copy prompt tổng hợp, dán vào tab Muse và bấm Gửi, rồi dán kết luận về.</div>
+      )}
       {phase === 'done' && (
-        <div className="done-banner">✅ Đã đủ 3 vòng. Bấm “Xuất kết quả” ở góc phải trên để lưu toàn bộ đáp án thành file Markdown.</div>
+        <div className="done-banner">✅ Đã có kết luận tổng hợp của Muse. Bấm “Xuất kết quả” ở góc phải trên để lưu toàn bộ đáp án + kết luận thành file Markdown.</div>
       )}
     </div>
   );

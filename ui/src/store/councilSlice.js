@@ -23,11 +23,13 @@ function timeNow() {
 
 const initialState = {
   topic: { title: '', goal: '', criteriaText: '' },
-  phase: 'setup', // setup | running | done
+  phase: 'setup', // setup | running | synthesis | done
   round: 1,
   activeBotId: 'chatgpt',
   viewMode: 'tabs', // tabs | grid
   answers: emptyAnswers(),
+  // Buoc tong hop cuoi cung o tab Muse (khong nam trong 3 vong x 4 bot).
+  synthesis: { status: STATUS.idle, answer: '' },
   log: [],
 };
 
@@ -88,8 +90,32 @@ const councilSlice = createSlice({
       }
     },
     finishSession(state) {
+      state.phase = 'synthesis';
+      state.activeBotId = 'muse';
+      state.viewMode = 'tabs';
+      state.log.unshift({ time: timeNow(), text: 'Đủ 12 đáp án (4 bot × 3 vòng). Chuyển sang bước TỔNG HỢP CUỐI: mở tab Muse, copy prompt tổng hợp, dán vào Muse và bấm Gửi, rồi copy kết luận về thẻ Muse ở cột phải.' });
+    },
+    synthesisPromptCopied(state) {
+      if (state.synthesis.status === STATUS.idle) state.synthesis.status = STATUS.prompt_ready;
+      state.log.unshift({ time: timeNow(), text: 'Đã copy prompt TỔNG HỢP — mở tab Muse, mở chat mới, dán và bấm Gửi.' });
+    },
+    synthesisMarkSent(state) {
+      if (state.synthesis.status !== STATUS.saved) state.synthesis.status = STATUS.sent;
+    },
+    synthesisAnswerPasted(state, action) {
+      state.synthesis.answer = action.payload;
+      state.synthesis.status = STATUS.saved;
       state.phase = 'done';
-      state.log.unshift({ time: timeNow(), text: 'Đủ 12 đáp án (4 bot × 3 vòng). Bấm "Xuất kết quả" để lưu file Markdown.' });
+      state.log.unshift({ time: timeNow(), text: `Đã lưu KẾT LUẬN TỔNG HỢP của Muse (${action.payload.length} ký tự). Bấm "Xuất kết quả" để lưu file có kèm kết luận này.` });
+    },
+    synthesisAnswerEdited(state, action) {
+      state.synthesis.answer = action.payload;
+    },
+    synthesisSaved(state) {
+      if (!state.synthesis.answer.trim()) return;
+      state.synthesis.status = STATUS.saved;
+      state.phase = 'done';
+      state.log.unshift({ time: timeNow(), text: `Đã lưu KẾT LUẬN TỔNG HỢP của Muse (${state.synthesis.answer.length} ký tự).` });
     },
     exportDone(state, action) {
       state.log.unshift({ time: timeNow(), text: `Đã xuất kết quả: ${action.payload}` });
@@ -104,14 +130,19 @@ const councilSlice = createSlice({
     copyPromptRequested() {},
     pasteAnswerRequested() {},
     exportRequested() {},
+    copySynthesisPromptRequested() {},
+    pasteSynthesisAnswerRequested() {},
   },
 });
 
 export const {
   topicChanged, startSession, selectBot, setViewMode, promptCopied, markSent,
   answerPasted, answerEdited, saveAnswer, nextRound, finishSession,
+  synthesisPromptCopied, synthesisMarkSent, synthesisAnswerPasted,
+  synthesisAnswerEdited, synthesisSaved,
   exportDone, logAdded, resetAll,
   copyPromptRequested, pasteAnswerRequested, exportRequested,
+  copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
 } = councilSlice.actions;
 
 export default councilSlice.reducer;

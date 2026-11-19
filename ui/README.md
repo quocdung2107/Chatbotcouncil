@@ -6,7 +6,7 @@ việc gõ lệnh trong Terminal của bản `hoi_dong.py`: mọi thao tác copy
 
 ## Màn hình gồm những gì
 
-- **Khu vực chatbot ở giữa**: 4 chatbot (ChatGPT, Claude, Gemini, Copilot) được nhúng
+- **Khu vực chatbot ở giữa**: 4 chatbot (ChatGPT, Claude, Gemini, Copilot) + tab Muse tổng hợp được nhúng
   thẳng vào app bằng `WebContentsView` của Electron — xem từng tab một, hoặc chuyển
   sang **Lưới 4 ô** (2×2) để thấy cả 4 cùng lúc. Mỗi chatbot có vùng lưu đăng nhập
   riêng (`persist:council-<bot>`), đăng nhập một lần, lần sau mở app vẫn còn.
@@ -15,9 +15,23 @@ việc gõ lệnh trong Terminal của bản `hoi_dong.py`: mọi thao tác copy
   1. **Copy prompt vòng này** — app tự soạn prompt đúng vai/form của vòng rồi đưa vào clipboard.
   2. **Tôi đã dán + bấm Gửi** — bạn tự dán (Ctrl+V) và bấm Gửi trong tab chatbot, xong bấm nút này.
   3. **Dán đáp án về** — bạn copy đáp án trong tab chatbot, bấm nút này để app lưu vào đúng ô.
-- **Thanh 3 vòng trên đầu**: Vòng 1 đề xuất mù → Vòng 2 phản biện chéo ẩn danh →
-  Vòng 3 tác giả sửa bài. Đủ 4/4 đáp án của một vòng, app tự chuyển vòng.
-- **Nhật ký thao tác** và nút **Xuất kết quả** (lưu toàn bộ 12 đáp án thành 1 file Markdown).
+- **Thanh tiến độ trên đầu**: Vòng 1 đề xuất mù → Vòng 2 phản biện chéo ẩn danh →
+  Vòng 3 tác giả sửa bài → **Tổng hợp**. Đủ 4/4 đáp án của một vòng, app tự chuyển vòng.
+- **Tab Muse — Tổng hợp (bước cuối, sau vòng 3)**: một tab riêng mở
+  [muse.ai](https://muse.ai/) — bạn đăng nhập bằng **tài khoản Muse của chính
+  bạn** ngay trong tab (một lần, app nhớ bằng `persist:council-muse` như các bot).
+  Muse **không** tranh luận như thành viên thứ 5: khi đủ 12 đáp án, app tự
+  chuyển sang bước tổng hợp và chọn sẵn tab Muse. Ở thẻ Muse (cột phải, mục
+  "Bước cuối — Tổng hợp") bạn bấm **Copy prompt TỔNG HỢP** — prompt này gói bản
+  cuối vòng 3 của cả 4 bot + phản biện vòng 2, và yêu cầu Muse *chốt* một kết
+  luận (chọn phương án khi các bài mâu thuẫn, không tóm tắt lần lượt) theo form:
+  Kết luận cuối cùng → Điểm thống nhất → Điểm còn tranh cãi và cách xử lý →
+  Phương án được chọn → Kế hoạch hành động → Rủi ro còn lại → Việc cần bạn quyết.
+  Dán vào tab Muse, bấm Gửi, copy kết luận về như với mọi bot. Tab Muse chỉ
+  hiện ở chế độ **1 tab**; lưới 2×2 vẫn dành cho 4 thành viên tranh luận.
+  Mẹo: mở thẻ Muse và đăng nhập sẵn ngay từ đầu phiên, để tới bước cuối khỏi chờ.
+- **Nhật ký thao tác** và nút **Xuất kết quả** (lưu toàn bộ 12 đáp án thành 1 file
+  Markdown, kèm mục **Kết luận tổng hợp cuối cùng — Muse** nếu đã có).
 - Phiên làm việc được tự lưu (localStorage của app), tắt app mở lại không mất đáp án.
 
 Prompt, vai trò, form đáp án và cách ẩn danh vòng 2 bám đúng thiết kế của `hoi_dong.py`
@@ -55,7 +69,7 @@ npm start
 ```
 ui/
   electron/
-    main.js      — cửa sổ chính, 4 WebContentsView, clipboard, hộp thoại lưu file
+    main.js      — cửa sổ chính, các WebContentsView (4 chatbot + tab Muse tổng hợp), clipboard, hộp thoại lưu file
     preload.js   — cầu nối an toàn window.councilApi cho React
   src/
     lib/council.js       — bot, vai trò, form, hàm soạn prompt, xuất Markdown
@@ -68,10 +82,12 @@ ui/
 
 ## Giới hạn của bản này (v1) và bước tiếp theo
 
-- Điều phối bằng **Gemini API** (tóm tắt thành thẻ luận điểm, chuẩn hoá form,
-  tổng hợp kết luận cuối) hiện vẫn nằm ở bản Python `hoi_dong.py` ở thư mục gốc.
+- Điều phối bằng **Gemini API** (tóm tắt thành thẻ luận điểm, chuẩn hoá form)
+  hiện vẫn nằm ở bản Python `hoi_dong.py` ở thư mục gốc.
   Bản giao diện này chưa gọi Gemini API — vòng 2 dùng nguyên văn đáp án vòng 1
-  (đã ẩn danh) thay cho thẻ luận điểm rút gọn.
+  (đã ẩn danh) thay cho thẻ luận điểm rút gọn. Riêng **tổng hợp kết luận cuối**
+  nay đã có trong giao diện, do **Muse** đảm nhiệm qua tab Muse ở trên
+  (bán tự động copy/dán như các bot, không qua API).
 - Bước tiếp theo nếu cần: nối hai phần lại — Electron gọi các hàm điều phối
   (plan / normalize / finalize) qua Gemini API ngay trong app, hoặc chạy
   `hoi_dong.py` làm tiến trình con phía sau giao diện.

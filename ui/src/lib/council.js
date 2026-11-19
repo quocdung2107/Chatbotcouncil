@@ -11,6 +11,15 @@ export const BOTS = [
 
 export const BOT_BY_ID = Object.fromEntries(BOTS.map((b) => [b.id, b]));
 
+// Muse KHONG phai thanh vien thu 5 cua hoi dong: Muse khong tham gia 3 vong
+// tranh luan (giu nguyen 4 bot x 3 vong = 12 dap an, vong tron phan bien va
+// an danh A-D khong doi). Muse la tab rieng cho BUOC TONG HOP CUOI CUNG sau
+// vong 3: doc ban sua cuoi cua ca 4 bot + phan bien vong 2, roi chot ket luan
+// chung. Dang nhap trong tab nay la tai khoan Muse cua chinh nguoi dung
+// (mo muse.ai, dang nhap 1 lan, partition persist:council-muse nho lai).
+export const SYNTH_BOT = { id: 'muse', name: 'Muse — Tổng hợp', url: 'https://muse.ai/', color: '#0082fb' };
+export const ALL_VIEWS = [...BOTS, SYNTH_BOT];
+
 // Vai vong 1 (giong ROLES_V1 trong hoi_dong.py)
 export const ROLES_V1 = {
   chatgpt: 'Người đề xuất phương án tổng thể (cấu trúc, bước làm)',
@@ -105,6 +114,62 @@ ${form}
 Quy tắc: không lặp lại phần đã đúng của người khác, chỉ tập trung vào nhiệm vụ vòng này.`;
 }
 
+export const FORM_SYNTH = `## Kết luận cuối cùng
+(phán quyết chung, tối đa 5 câu — phải CHỌN một phương án khi các bài mâu thuẫn, không liệt kê cả hai như nhau)
+
+## Điểm cả hội đồng đã thống nhất
+- ...
+
+## Điểm còn tranh cãi — và cách xử lý
+- [điểm tranh cãi] → chọn theo bài nào, vì sao
+
+## Phương án được chọn
+- Phương án: ...
+- Lý do chọn (dựa trên căn cứ mạnh nhất trong các bài, không dựa trên số đông)
+
+## Kế hoạch hành động
+1. ... (bước cụ thể, làm được ngay)
+2. ...
+
+## Rủi ro còn lại / điều chưa kiểm chứng được
+- ...
+
+## Việc cần người dùng quyết định
+- ... (nếu không có, ghi "Không có")`;
+
+// Prompt cho buoc tong hop cuoi cung (tab Muse). Dau vao: ban SUA CUOI
+// (vong 3) cua ca 4 bot la chinh, kem phan bien vong 2 de Muse thay diem nao
+// da bi bat be va cach cac bot cham diem nhau.
+export function buildSynthesisPrompt({ topic, answers }) {
+  const goal = (topic.goal || '').trim() || topic.title;
+  const finalText = BOTS
+    .map((b) => `--- BẢN CUỐI (VÒNG 3) CỦA ${b.name.toUpperCase()} ---\n${(answers[3]?.[b.id]?.answer || '').trim() || '(chưa có đáp án)'}`)
+    .join('\n\n');
+  const critiqueText = BOTS
+    .map((b) => `--- PHẢN BIỆN (VÒNG 2) CỦA ${b.name.toUpperCase()} ---\n${(answers[2]?.[b.id]?.answer || '').trim() || '(chưa có đáp án)'}`)
+    .join('\n\n');
+  return `[HỘI ĐỒNG — Chủ đề: ${topic.title} — BƯỚC TỔNG HỢP CUỐI CÙNG — Muse]
+Mục tiêu chung: ${goal}
+Tiêu chí chấm:
+${criteriaLines(topic.criteriaText)}
+
+Vai của bạn: NGƯỜI TỔNG HỢP CUỐI CÙNG của hội đồng. Bạn không phải thành viên tranh luận thứ 5 và không viết thêm một phương án riêng cạnh tranh với 4 bài dưới đây. Việc của bạn là đọc cả 4 bản cuối + các phản biện, rồi CHỐT một kết luận chung cho người dùng.
+Quy tắc tổng hợp:
+- Không cộng trung bình, không tóm tắt lần lượt từng bài. Chỗ nào các bài mâu thuẫn, phải chọn một phía và nói rõ vì sao (căn cứ nào mạnh hơn).
+- Điểm nào cả 4 bài cùng thống nhất thì coi là đáng tin, nêu ngắn gọn.
+- Giữ lại các rủi ro và điểm chưa kiểm chứng mà phản biện vòng 2 đã chỉ ra nhưng bản cuối chưa giải quyết được.
+- Kế hoạch hành động phải cụ thể tới mức người dùng làm theo được ngay, bám đúng bối cảnh trong chủ đề/mục tiêu ở trên.
+
+=== BẢN CUỐI CỦA 4 THÀNH VIÊN (VÒNG 3 — ĐÃ SỬA SAU PHẢN BIỆN) ===
+${finalText}
+
+=== PHẢN BIỆN VÒNG 2 (để đối chiếu điểm yếu và điểm số) ===
+${critiqueText}
+
+Trả lời ĐÚNG form dưới đây:
+${FORM_SYNTH}`;
+}
+
 // Xuat toan bo phien lam viec thanh Markdown (nut "Xuat ket qua").
 export function buildExportMarkdown(state) {
   const { topic, answers } = state;
@@ -117,5 +182,7 @@ export function buildExportMarkdown(state) {
       out.push(`### ${bot.name}`, '', ans || '(chưa có đáp án)', '');
     }
   }
+  const synth = (state.synthesis?.answer || '').trim();
+  if (synth) out.push('## Kết luận tổng hợp cuối cùng — Muse', '', synth, '');
   return out.join('\n');
 }

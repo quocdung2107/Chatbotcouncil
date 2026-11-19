@@ -1,8 +1,10 @@
 import { all, call, put, select, takeEvery } from 'redux-saga/effects';
-import { buildPrompt, buildExportMarkdown } from '../lib/council';
+import { buildPrompt, buildSynthesisPrompt, buildExportMarkdown } from '../lib/council';
 import {
   copyPromptRequested, pasteAnswerRequested, exportRequested,
+  copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
   promptCopied, answerPasted, saveAnswer, nextRound, finishSession,
+  synthesisPromptCopied, synthesisAnswerPasted,
   exportDone, logAdded, selectCouncil, selectRoundComplete,
 } from './councilSlice';
 
@@ -80,11 +82,36 @@ function* exportSaga() {
   }
 }
 
+// 5) Copy prompt TONG HOP CUOI (tab Muse) — gom ban cuoi vong 3 + phan bien vong 2
+function* copySynthesisPromptSaga() {
+  const state = yield select(selectCouncil);
+  const fullState = yield select();
+  if (!selectRoundComplete(fullState, 3)) {
+    yield put(logAdded('Chưa đủ đáp án vòng 3 — Muse chỉ tổng hợp SAU khi cả 4 bot đã sửa bài xong. Bạn có thể mở tab Muse trước để đăng nhập sẵn.'));
+    return;
+  }
+  const prompt = buildSynthesisPrompt({ topic: state.topic, answers: state.answers });
+  yield call(clipboardWrite, prompt);
+  yield put(synthesisPromptCopied());
+}
+
+// 6) Dan ket luan tong hop tu tab Muse ve
+function* pasteSynthesisAnswerSaga() {
+  const text = yield call(clipboardRead);
+  if (!text || !String(text).trim()) {
+    yield put(logAdded('Clipboard đang trống — hãy copy kết luận trong tab Muse trước rồi bấm lại nút dán.'));
+    return;
+  }
+  yield put(synthesisAnswerPasted(String(text)));
+}
+
 export default function* rootSaga() {
   yield all([
     takeEvery(copyPromptRequested.type, copyPromptSaga),
     takeEvery(pasteAnswerRequested.type, pasteAnswerSaga),
     takeEvery([answerPasted.type, saveAnswer.type], afterSaveSaga),
     takeEvery(exportRequested.type, exportSaga),
+    takeEvery(copySynthesisPromptRequested.type, copySynthesisPromptSaga),
+    takeEvery(pasteSynthesisAnswerRequested.type, pasteSynthesisAnswerSaga),
   ]);
 }

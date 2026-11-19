@@ -11,7 +11,7 @@ export const STATUS_LABEL = {
 // The trang thai + cac nut thao tac cua 1 bot trong vong hien tai.
 // Quy trinh ban tu dong: Copy prompt -> (dan + Gui bang tay trong tab) ->
 // "Da gui" -> copy dap an trong tab -> "Dan dap an ve".
-export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent, onPaste, onSave, onEdit, onReload, onNewSession, browserMode }) {
+export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent, onPaste, onSave, onEdit, onReload, onNewSession, browserMode, synth }) {
   return (
     <div className={`bot-card ${isActive ? 'active' : ''}`} onClick={onSelect}>
       <div className="bot-card-head">
@@ -33,7 +33,7 @@ export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent,
             </div>
           )}
           <div className="btn-row">
-            <button type="button" className="primary" onClick={onCopy}>1 · Copy prompt vòng này</button>
+            <button type="button" className="primary" onClick={onCopy}>{synth ? '1 · Copy prompt TỔNG HỢP' : '1 · Copy prompt vòng này'}</button>
           </div>
           <div className="btn-row">
             <button type="button" onClick={onSent} disabled={cell.status === STATUS.saved}>2 · Tôi đã dán + bấm Gửi</button>
@@ -41,7 +41,7 @@ export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent,
           </div>
           <textarea
             className="answer-box"
-            placeholder="Đáp án của bot sẽ hiện ở đây sau khi dán về — bạn cũng có thể dán/sửa tay rồi bấm Lưu."
+            placeholder={synth ? 'Kết luận tổng hợp của Muse sẽ hiện ở đây sau khi dán về — bạn cũng có thể dán/sửa tay rồi bấm Lưu.' : 'Đáp án của bot sẽ hiện ở đây sau khi dán về — bạn cũng có thể dán/sửa tay rồi bấm Lưu.'}
             value={cell.answer}
             onChange={(e) => onEdit(e.target.value)}
             rows={7}

@@ -1,6 +1,6 @@
 // Electron main process — Chat Hoi Dong UI
-// Nhiem vu: 1 cua so duy nhat, ben trong chua 4 WebContentsView (1 cho moi
-// chatbot). Moi view co partition rieng (persist:council-<id>) nen dang nhap
+// Nhiem vu: 1 cua so duy nhat, ben trong chua cac WebContentsView (1 cho moi
+// chatbot, cong tab Muse cho buoc tong hop cuoi). Moi view co partition rieng (persist:council-<id>) nen dang nhap
 // duoc luu tren dia, tat app mo lai van con. App chi mo/an cac view va xu ly
 // clipboard + luu file; viec dan prompt, bam Gui, copy dap an van do nguoi
 // dung lam tay trong tung trang chatbot (ban tu dong, dung chinh sach).
@@ -14,6 +14,13 @@ const BOTS = [
   { id: 'gemini', url: 'https://gemini.google.com/app' },
   { id: 'copilot', url: 'https://copilot.microsoft.com/' },
 ];
+
+// Muse la tab rieng cho BUOC TONG HOP CUOI CUNG (sau vong 3), khong phai
+// thanh vien tranh luan thu 5: chi hien o che do tab, khong vao luoi 2x2 cua
+// 4 thanh vien. Tab nay mo muse.ai — nguoi dung dang nhap bang tai khoan Muse
+// cua chinh minh (1 lan, partition persist:council-muse nho lai nhu cac bot).
+const SYNTH_VIEW = { id: 'muse', url: 'https://muse.ai/' };
+const VIEWS = [...BOTS, SYNTH_VIEW];
 
 let win = null;
 const views = new Map(); // id -> WebContentsView
@@ -33,7 +40,7 @@ const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 app.userAgentFallback = CHROME_UA;
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 
-const AUTH_HOSTS = /(^|\.)(accounts\.google\.com|google\.com|login\.microsoftonline\.com|login\.live\.com|microsoft\.com|appleid\.apple\.com|apple\.com|auth0\.com|openai\.com|chatgpt\.com|claude\.ai|anthropic\.com)$/i;
+const AUTH_HOSTS = /(^|\.)(accounts\.google\.com|google\.com|login\.microsoftonline\.com|login\.live\.com|microsoft\.com|appleid\.apple\.com|apple\.com|auth0\.com|openai\.com|chatgpt\.com|claude\.ai|anthropic\.com|muse\.ai|meta\.ai|facebook\.com|accountscenter\.facebook\.com|accountscenter\.meta\.com)$/i;
 function safeHost(u) { try { return new URL(u).hostname; } catch (_) { return ''; } }
 
 function getOrCreateView(bot) {
@@ -95,6 +102,9 @@ function layoutViews({ mode, activeId, rect }) {
   const x = Math.round(rect.x), y = Math.round(rect.y);
   const w = Math.round(rect.width), h = Math.round(rect.height);
   if (mode === 'grid') {
+    // Luoi chi danh cho 4 thanh vien tranh luan; tab Muse (tong hop) an o che
+    // do nay — can tong hop thi chuyen ve che do "1 tab" va chon the Muse.
+    if (views.has(SYNTH_VIEW.id)) { try { win.contentView.removeChildView(views.get(SYNTH_VIEW.id)); } catch (_) { /* chua gan */ } }
     const gap = 6;
     const cw = Math.floor((w - gap) / 2), ch = Math.floor((h - gap) / 2);
     BOTS.forEach((bot, i) => {
@@ -104,8 +114,9 @@ function layoutViews({ mode, activeId, rect }) {
       view.setBounds({ x: x + col * (cw + gap), y: y + row * (ch + gap), width: cw, height: ch });
     });
   } else {
-    // Che do tab: chi view cua bot dang chon duoc hien, cac view con lai an.
-    BOTS.forEach((bot) => {
+    // Che do tab: chi view dang chon duoc hien (ke ca tab Muse tong hop),
+    // cac view con lai an.
+    VIEWS.forEach((bot) => {
       const view = getOrCreateView(bot);
       if (bot.id === activeId) {
         try { win.contentView.addChildView(view); } catch (_) { /* da gan */ }
@@ -144,14 +155,14 @@ function createWindow() {
 ipcMain.handle('views:layout', (_e, payload) => { layoutViews(payload || {}); return true; });
 ipcMain.handle('views:hide', () => { hideAllViews(); return true; });
 ipcMain.handle('views:reload', (_e, botId) => {
-  const bot = BOTS.find((b) => b.id === botId);
+  const bot = VIEWS.find((b) => b.id === botId);
   if (bot) getOrCreateView(bot).webContents.reload();
   return true;
 });
 ipcMain.handle('views:new-session', (_e, botId) => {
   // "Session moi" cho 1 vong = nap lai trang goc cua chatbot; nguoi dung tu
   // bam New chat trong trang. App khong tu dong thao tac trong trang.
-  const bot = BOTS.find((b) => b.id === botId);
+  const bot = VIEWS.find((b) => b.id === botId);
   if (bot) getOrCreateView(bot).webContents.loadURL(bot.url);
   return true;
 });
