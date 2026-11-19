@@ -47,6 +47,9 @@ const initialState = {
   answers: emptyAnswers(),
   // Buoc tong hop cuoi cung o tab Muse (khong nam trong 3 vong x 4 bot).
   synthesis: { status: STATUS.idle, answer: '' },
+  // Dieu phoi Gemini API (API key KHONG luu o day — key chi o localStorage
+  // rieng cua panel, khong vao phien.json): ket qua dieu phoi cua phien.
+  coordinator: { claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '' },
   files: emptyFiles(),
   log: [],
 };
@@ -141,6 +144,38 @@ const councilSlice = createSlice({
     logAdded(state, action) {
       state.log.unshift({ time: timeNow(), text: action.payload });
     },
+    logCleared(state) {
+      state.log = [];
+    },
+    // ---- Dieu phoi Gemini API ----
+    geminiBusy(state, action) {
+      state.coordinator.busy = action.payload || '';
+      if (action.payload) state.coordinator.lastError = '';
+    },
+    geminiFailed(state, action) {
+      state.coordinator.busy = '';
+      state.coordinator.lastError = action.payload || '';
+      state.log.unshift({ time: timeNow(), text: `Gemini API (điều phối) lỗi: ${action.payload}` });
+    },
+    claimCardsReady(state, action) {
+      state.coordinator.busy = '';
+      state.coordinator.claimCards = action.payload;
+      state.log.unshift({ time: timeNow(), text: `Gemini API đã tóm tắt vòng 1 thành THẺ LUẬN ĐIỂM (${action.payload.length} ký tự) — prompt vòng 2 sẽ dùng thẻ này thay cho nguyên văn 4 bài.` });
+    },
+    formReportReady(state, action) {
+      state.coordinator.busy = '';
+      state.coordinator.formReport = action.payload.text;
+      state.log.unshift({ time: timeNow(), text: `Gemini API đã kiểm tra form vòng ${action.payload.round} — xem kết quả trong panel Điều phối.` });
+    },
+    synthBriefReady(state, action) {
+      state.coordinator.busy = '';
+      state.coordinator.synthBrief = action.payload;
+      state.log.unshift({ time: timeNow(), text: `Gemini API đã chuẩn bị GÓI TÓM TẮT trước tổng hợp (${action.payload.length} ký tự) — prompt tổng hợp cho Muse sẽ kèm gói này.` });
+    },
+    geminiTestOk(state, action) {
+      state.coordinator.busy = '';
+      state.log.unshift({ time: timeNow(), text: `Gemini API kết nối THÀNH CÔNG bằng model ${action.payload} — key dùng được, vai trò điều phối đã sẵn sàng.` });
+    },
     // ---- Workflow file (goi day du) ----
     filesStateLoaded(state, action) {
       const { workDir, recentFiles, recentSessions, history } = action.payload || {};
@@ -188,6 +223,7 @@ const councilSlice = createSlice({
       state.topic = data.topic;
       state.answers = data.answers;
       state.synthesis = data.synthesis || { status: STATUS.idle, answer: '' };
+      state.coordinator = data.coordinator || { claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '' };
       state.phase = data.phase || 'running';
       state.round = data.round || 1;
       state.activeBotId = 'chatgpt';
@@ -217,6 +253,10 @@ const councilSlice = createSlice({
     openSessionRequested() {},
     dropAnswerFileRequested() {},
     refreshFilesRequested() {},
+    geminiTestRequested() {},
+    geminiClaimCardsRequested() {},
+    geminiFormCheckRequested() {},
+    geminiSynthBriefRequested() {},
   },
 });
 
@@ -225,7 +265,8 @@ export const {
   answerPasted, answerEdited, saveAnswer, nextRound, finishSession,
   synthesisPromptCopied, synthesisMarkSent, synthesisAnswerPasted,
   synthesisAnswerEdited, synthesisSaved,
-  exportDone, logAdded, resetAll,
+  exportDone, logAdded, logCleared, resetAll,
+  geminiBusy, geminiFailed, claimCardsReady, formReportReady, synthBriefReady, geminiTestOk,
   filesStateLoaded, workDirChanged, sessionFolderReady, sessionFilesUpdated,
   recentFilesUpdated, historyUpdated, contextLoaded, contextCleared, sessionRestored,
   copyPromptRequested, pasteAnswerRequested, exportRequested,
@@ -233,6 +274,7 @@ export const {
   filesInitRequested, chooseWorkDirRequested, loadContextRequested,
   restoreSessionRequested, openSessionRequested, dropAnswerFileRequested,
   refreshFilesRequested,
+  geminiTestRequested, geminiClaimCardsRequested, geminiFormCheckRequested, geminiSynthBriefRequested,
 } = councilSlice.actions;
 
 export default councilSlice.reducer;

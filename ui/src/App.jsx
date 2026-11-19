@@ -7,13 +7,14 @@ import {
   synthesisMarkSent, synthesisAnswerEdited, synthesisSaved,
   copyPromptRequested, pasteAnswerRequested, exportRequested,
   copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
-  filesInitRequested, refreshFilesRequested, contextLoaded, recentFilesUpdated, logAdded,
+  filesInitRequested, refreshFilesRequested, contextLoaded, recentFilesUpdated, logAdded, logCleared,
   openSessionRequested, dropAnswerFileRequested,
   selectRoundSavedCount, selectTotalSavedCount, STATUS,
 } from './store/councilSlice';
 import BotCard from './components/BotCard';
 import RoundStepper from './components/RoundStepper';
 import FilesPanel from './components/FilesPanel';
+import GeminiPanel from './components/GeminiPanel';
 
 export default function App() {
   const dispatch = useDispatch();
@@ -208,6 +209,7 @@ export default function App() {
               Bắt đầu phiên hội đồng
             </button>
             <FilesPanel />
+            <GeminiPanel />
           </section>
         ) : (
           <>
@@ -272,17 +274,13 @@ export default function App() {
 
               <FilesPanel />
 
-              <div className="sidebar-title">Nhật ký thao tác</div>
-              <div className="log">
-                {log.length === 0 && <div className="log-empty">Chưa có thao tác nào.</div>}
-                {log.slice(0, 30).map((entry, i) => (
-                  <div key={i} className="log-item"><span className="log-time">{entry.time}</span> {entry.text}</div>
-                ))}
-              </div>
+              <GeminiPanel />
             </aside>
           </>
         )}
       </div>
+
+      <LogPanel log={log} />
 
       {phase === 'synthesis' && (
         <div className="done-banner">🧭 Đã đủ 3 vòng — giờ tới bước TỔNG HỢP: chọn thẻ “Muse — Tổng hợp” ở cột phải, copy prompt tổng hợp, dán vào tab Muse và bấm Gửi, rồi dán kết luận về.</div>
@@ -291,5 +289,40 @@ export default function App() {
         <div className="done-banner">✅ Đã có kết luận tổng hợp của Muse. Bấm “Xuất kết quả” ở góc phải trên để lưu toàn bộ đáp án + kết luận thành file Markdown.</div>
       )}
     </div>
+  );
+}
+
+// Nhat ky thao tac: panel RIENG o day man hinh, rong bang ca cua so (truoc
+// day nam chen trong cot phai 380px nen chu bi vo dong, khong doc duoc).
+// Mac dinh cao vua phai, bam "Mo rong" de doc thoai mai; co Copy va Xoa.
+function LogPanel({ log }) {
+  const dispatch = useDispatch();
+  const [expanded, setExpanded] = useState(false);
+  const copyLog = async () => {
+    const text = [...log].reverse().map((e) => `${e.time} — ${e.text}`).join('\n');
+    try {
+      if (window.councilApi?.clipboardWrite) await window.councilApi.clipboardWrite(text);
+      else if (navigator?.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      dispatch(logAdded('Đã copy toàn bộ nhật ký thao tác vào clipboard.'));
+    } catch (_) { /* bo qua */ }
+  };
+  return (
+    <section className={`log-panel ${expanded ? 'expanded' : ''}`}>
+      <div className="log-panel-head">
+        <span className="log-panel-title">📋 Nhật ký thao tác</span>
+        <span className="log-panel-count">{log.length} dòng — mới nhất ở trên</span>
+        <div className="log-panel-actions">
+          <button type="button" onClick={() => setExpanded((v) => !v)}>{expanded ? 'Thu gọn' : 'Mở rộng'}</button>
+          <button type="button" onClick={copyLog} disabled={!log.length}>Copy nhật ký</button>
+          <button type="button" onClick={() => { if (window.confirm('Xoá toàn bộ nhật ký thao tác của phiên này?')) dispatch(logCleared()); }} disabled={!log.length}>Xoá</button>
+        </div>
+      </div>
+      <div className="log-panel-body">
+        {log.length === 0 && <div className="log-empty">Chưa có thao tác nào.</div>}
+        {log.slice(0, 200).map((entry, i) => (
+          <div key={i} className="log-item"><span className="log-time">{entry.time}</span><span className="log-text">{entry.text}</span></div>
+        ))}
+      </div>
+    </section>
   );
 }

@@ -21,6 +21,8 @@ function loadPersisted() {
       parsed.files = { workDir: '', sessionDir: '', sessionFolder: '', contextName: '', contextPath: '', contextText: '', recentFiles: [], recentSessions: [], history: [], sessionFiles: [] };
     }
     if (!parsed.files.recentSessions) parsed.files.recentSessions = [];
+    if (!parsed.coordinator) parsed.coordinator = { claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '' };
+    parsed.coordinator.busy = '';
     if (parsed.topic && !parsed.topic.mode) parsed.topic.mode = 'deep';
     return { council: parsed };
   } catch (_) {

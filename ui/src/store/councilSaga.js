@@ -4,14 +4,17 @@ import {
   buildBriefingText, buildRequestText, sessionFolderName, sessionFileName,
   SYNTH_FILE_NAME, SESSION_JSON_NAME, BOT_BY_ID,
 } from '../lib/council';
+import { callGemini, buildClaimCardsPrompt, buildFormCheckPrompt, buildSynthBriefPrompt } from '../lib/gemini';
 import {
   copyPromptRequested, pasteAnswerRequested, exportRequested,
   copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
   filesInitRequested, chooseWorkDirRequested, loadContextRequested,
   restoreSessionRequested, openSessionRequested, dropAnswerFileRequested,
   refreshFilesRequested,
+  geminiTestRequested, geminiClaimCardsRequested, geminiFormCheckRequested, geminiSynthBriefRequested,
   promptCopied, answerPasted, saveAnswer, nextRound, finishSession,
   synthesisPromptCopied, synthesisAnswerPasted, synthesisSaved,
+  geminiBusy, geminiFailed, claimCardsReady, formReportReady, synthBriefReady, geminiTestOk,
   startSession,
   exportDone, logAdded, selectCouncil, selectRoundComplete,
   filesStateLoaded, workDirChanged, sessionFolderReady, sessionFilesUpdated,
@@ -50,6 +53,7 @@ function snapshotOf(state) {
     round: state.round,
     answers: state.answers,
     synthesis: state.synthesis,
+    coordinator: state.coordinator ? { claimCards: state.coordinator.claimCards, formReport: state.coordinator.formReport, synthBrief: state.coordinator.synthBrief } : undefined,
     files: {
       sessionDir: state.files.sessionDir,
       sessionFolder: state.files.sessionFolder,
@@ -86,7 +90,7 @@ function* writeSnapshot() {
 function* copyPromptSaga(action) {
   const botId = action.payload;
   const state = yield select(selectCouncil);
-  const prompt = buildPrompt({ topic: state.topic, round: state.round, botId, answers: state.answers, contextText: state.files.contextText });
+  const prompt = buildPrompt({ topic: state.topic, round: state.round, botId, answers: state.answers, contextText: state.files.contextText, claimCards: state.coordinator?.claimCards });
   yield call(clipboardWrite, prompt);
   yield put(promptCopied(botId));
 }
@@ -178,7 +182,7 @@ function* copySynthesisPromptSaga() {
     yield put(logAdded(`Chưa đủ đáp án vòng ${lastRound} — Muse chỉ tổng hợp SAU khi cả 4 bot đã xong. Bạn có thể mở tab Muse trước để đăng nhập sẵn.`));
     return;
   }
-  const prompt = buildSynthesisPrompt({ topic: state.topic, answers: state.answers, contextText: state.files.contextText });
+  const prompt = buildSynthesisPrompt({ topic: state.topic, answers: state.answers, contextText: state.files.contextText, synthBrief: state.coordinator?.synthBrief });
   yield call(clipboardWrite, prompt);
   yield put(synthesisPromptCopied());
 }
@@ -327,6 +331,69 @@ function* refreshFilesSaga() {
   } catch (_) { /* bo qua */ }
 }
 
+// ---- Dieu phoi Gemini API ----
+// Moi action mang { apiKey, model } tu panel dieu phoi (key chi o panel,
+// saga khong luu key vao state/file). Loi API -> ghi nhat ky + panel bao loi,
+// luong chinh cua hoi dong van chay bang cach cu (fallback nguyen van).
+
+function* geminiCall(payload, busyLabel, prompt) {
+  yield put(geminiBusy(busyLabel));
+  const result = yield call(callGemini, { apiKey: payload?.apiKey, model: payload?.model, prompt });
+  if (!result?.ok) {
+    yield put(geminiFailed(result?.error || 'Lỗi không rõ từ Gemini API.'));
+    return null;
+  }
+  return result;
+}
+
+function* geminiTestSaga(action) {
+  const result = yield call(geminiCall, action.payload, 'test', 'Bạn là điều phối viên của một hội đồng. Trả lời đúng một chữ: OK');
+  if (result) yield put(geminiTestOk(result.model || action.payload?.model));
+}
+
+function* geminiClaimCardsSaga(action) {
+  const state = yield select(selectCouncil);
+  const fullState = yield select();
+  if (!selectRoundComplete(fullState, 1)) {
+    yield put(logAdded('Chưa tóm tắt được: cần đủ 4/4 đáp án vòng 1 trước.'));
+    return;
+  }
+  const result = yield call(geminiCall, action.payload, 'claimCards', buildClaimCardsPrompt({ topic: state.topic, answers: state.answers }));
+  if (result) {
+    yield put(claimCardsReady(result.text));
+    yield call(writeSessionFile, 'dieu-phoi/the-luan-diem-vong-1.md', `# Thẻ luận điểm vòng 1 (Gemini API tóm tắt) — ${state.topic.title}\n\n${result.text}\n`, 'Đã ghi thẻ luận điểm (điều phối Gemini API) vào thư mục phiên');
+    yield call(writeSnapshot);
+  }
+}
+
+function* geminiFormCheckSaga(action) {
+  const state = yield select(selectCouncil);
+  const round = state.round;
+  const hasAny = Object.values(state.answers[round] || {}).some((c) => (c.answer || '').trim());
+  if (!hasAny) {
+    yield put(logAdded(`Chưa kiểm tra form được: vòng ${round} chưa có đáp án nào.`));
+    return;
+  }
+  const result = yield call(geminiCall, action.payload, 'formCheck', buildFormCheckPrompt({ topic: state.topic, round, answers: state.answers }));
+  if (result) yield put(formReportReady({ round, text: result.text }));
+}
+
+function* geminiSynthBriefSaga(action) {
+  const state = yield select(selectCouncil);
+  const fullState = yield select();
+  const lastRound = state.topic.mode === 'fast' ? 1 : 3;
+  if (!selectRoundComplete(fullState, lastRound)) {
+    yield put(logAdded(`Chưa chuẩn bị gói tổng hợp được: cần đủ 4/4 đáp án vòng ${lastRound} trước.`));
+    return;
+  }
+  const result = yield call(geminiCall, action.payload, 'synthBrief', buildSynthBriefPrompt({ topic: state.topic, answers: state.answers }));
+  if (result) {
+    yield put(synthBriefReady(result.text));
+    yield call(writeSessionFile, 'dieu-phoi/goi-tom-tat-truoc-tong-hop.md', `# Gói tóm tắt trước tổng hợp (Gemini API) — ${state.topic.title}\n\n${result.text}\n`, 'Đã ghi gói tóm tắt trước tổng hợp vào thư mục phiên');
+    yield call(writeSnapshot);
+  }
+}
+
 export default function* rootSaga() {
   yield all([
     takeEvery(copyPromptRequested.type, copyPromptSaga),
@@ -344,5 +411,9 @@ export default function* rootSaga() {
     takeEvery(openSessionRequested.type, openSessionSaga),
     takeEvery(dropAnswerFileRequested.type, dropAnswerFileSaga),
     takeEvery(refreshFilesRequested.type, refreshFilesSaga),
+    takeEvery(geminiTestRequested.type, geminiTestSaga),
+    takeEvery(geminiClaimCardsRequested.type, geminiClaimCardsSaga),
+    takeEvery(geminiFormCheckRequested.type, geminiFormCheckSaga),
+    takeEvery(geminiSynthBriefRequested.type, geminiSynthBriefSaga),
   ]);
 }

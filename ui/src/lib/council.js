@@ -170,7 +170,7 @@ export function buildRequestText(topic, contextText) {
 // answers: { [round]: { [botId]: { answer } } } — dung prompt cho 1 bot o 1 vong.
 // contextText (tu file nguoi dung nap/keo-tha vao) chi dinh o VONG 1 va buoc
 // tong hop — vong 2/3 da co ngu canh la bai vong truoc.
-export function buildPrompt({ topic, round, botId, answers, contextText }) {
+export function buildPrompt({ topic, round, botId, answers, contextText, claimCards }) {
   const bot = BOT_BY_ID[botId];
   const goal = (topic.goal || '').trim() || topic.title;
   // Che do: 'deep' (mac dinh) = 3 vong day du; 'fast' (opt-in cho chu de de)
@@ -197,12 +197,28 @@ export function buildPrompt({ topic, round, botId, answers, contextText }) {
     role = 'Người phản biện (ẩn danh)';
     const targetId = CRITIQUE_OF[botId];
     const { aliasOf, order } = anonymize(botId);
-    const cardsText = order
-      .map((id) => `--- Bài của ${aliasOf[id]} ---\n${(answers[1]?.[id]?.answer || '').trim()}`)
-      .join('\n\n');
+    // Neu dieu phoi Gemini API da tom tat vong 1 thanh THE LUAN DIEM thi dung
+    // the (gon, bot phan bien doc nhanh) — the van giu ten bot that nen phai
+    // doi ten thanh ma an danh A-D truoc khi dua vao prompt. Chua co the thi
+    // dung nguyen van bai vong 1 nhu truoc (fallback cua thiet ke goc).
+    let cardsText;
+    let cardsNote = '';
+    if (claimCards && claimCards.trim()) {
+      let anonymized = claimCards;
+      // Doi ten bot dai truoc, ten ngan sau, tranh de ten that trong the.
+      [...BOTS].sort((a, b) => b.name.length - a.name.length).forEach((b) => {
+        anonymized = anonymized.split(b.name).join(`Bài ${aliasOf[b.id]}`);
+      });
+      cardsText = anonymized.trim();
+      cardsNote = ' (đã rút gọn thành thẻ luận điểm bởi điều phối Gemini API)';
+    } else {
+      cardsText = order
+        .map((id) => `--- Bài của ${aliasOf[id]} ---\n${(answers[1]?.[id]?.answer || '').trim()}`)
+        .join('\n\n');
+    }
     task = `Vai của bạn vòng này: phản biện bài của ${aliasOf[targetId]} (bài của một thành viên vòng 1, đã ẩn danh). Chỉ phản biện bài đó, không phản biện bài khác. Nếu thấy bài khác đúng thì nói rõ đồng ý ở điểm nào.`;
     form = FORM_V2;
-    context = `\n\n=== CÁC BÀI VÒNG 1 (đã ẩn danh) ===\n${cardsText}\n`;
+    context = `\n\n=== CÁC BÀI VÒNG 1 (đã ẩn danh)${cardsNote} ===\n${cardsText}\n`;
   } else {
     role = 'Tác giả sửa bài của chính mình';
     const mine = (answers[1]?.[botId]?.answer || '').trim();
@@ -253,7 +269,7 @@ export const FORM_SYNTH = `## Kết luận cuối cùng
 // Prompt cho buoc tong hop cuoi cung (tab Muse). Dau vao: ban SUA CUOI
 // (vong 3) cua ca 4 bot la chinh, kem phan bien vong 2 de Muse thay diem nao
 // da bi bat be va cach cac bot cham diem nhau.
-export function buildSynthesisPrompt({ topic, answers, contextText }) {
+export function buildSynthesisPrompt({ topic, answers, contextText, synthBrief }) {
   const goal = (topic.goal || '').trim() || topic.title;
   // Che do nhanh: ban cuoi la vong 1 noi tiep, khong co phan bien vong 2.
   const lastRound = topic.mode === 'fast' ? 1 : 3;
@@ -276,7 +292,7 @@ Quy tắc tổng hợp:
 - Giữ lại các rủi ro và điểm chưa kiểm chứng mà phản biện vòng 2 đã chỉ ra nhưng bản cuối chưa giải quyết được.
 - Kế hoạch hành động phải cụ thể tới mức người dùng làm theo được ngay, bám đúng bối cảnh trong chủ đề/mục tiêu ở trên.
 
-=== BẢN CUỐI CỦA 4 THÀNH VIÊN (VÒNG 3 — ĐÃ SỬA SAU PHẢN BIỆN) ===
+${synthBrief && synthBrief.trim() ? `=== GÓI TÓM TẮT CỦA ĐIỀU PHỐI (Gemini API — đọc trước để nắm nhanh, bản đầy đủ ở dưới) ===\n${synthBrief.trim()}\n\n` : ''}=== BẢN CUỐI CỦA 4 THÀNH VIÊN (VÒNG 3 — ĐÃ SỬA SAU PHẢN BIỆN) ===
 ${finalText}
 
 === PHẢN BIỆN VÒNG 2 (để đối chiếu điểm yếu và điểm số) ===

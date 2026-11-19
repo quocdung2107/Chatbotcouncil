@@ -30,8 +30,22 @@ việc gõ lệnh trong Terminal của bản `hoi_dong.py`: mọi thao tác copy
   Dán vào tab Muse, bấm Gửi, copy kết luận về như với mọi bot. Tab Muse chỉ
   hiện ở chế độ **1 tab**; lưới 2×2 vẫn dành cho 4 thành viên tranh luận.
   Mẹo: mở thẻ Muse và đăng nhập sẵn ngay từ đầu phiên, để tới bước cuối khỏi chờ.
-- **Nhật ký thao tác** và nút **Xuất kết quả** (lưu toàn bộ 12 đáp án thành 1 file
-  Markdown, kèm mục **Kết luận tổng hợp cuối cùng — Muse** nếu đã có).
+- **Panel Điều phối Gemini API** (ở màn hình tạo chủ đề và ở cột phải khi phiên
+  đang chạy): dán **Gemini API key** của bạn (lấy miễn phí ở Google AI Studio —
+  key chỉ lưu trong app trên máy bạn, không vào file phiên, không vào repo) và
+  bấm **Kiểm tra kết nối** để chắc chắn key dùng được. Gemini API là *điều phối
+  viên* đúng như thiết kế gốc, làm 3 việc: **(1)** đủ 4/4 đáp án vòng 1 thì bấm
+  *Tóm tắt vòng 1 → thẻ luận điểm* — prompt vòng 2 sẽ dùng thẻ gọn này (đã ẩn
+  danh) thay cho nguyên văn 4 bài; **(2)** *Kiểm tra form* của vòng hiện tại;
+  **(3)** đủ đáp án vòng cuối thì bấm *Gói tóm tắt trước tổng hợp* — gói này tự
+  kèm vào prompt tổng hợp gửi Muse. Kết quả điều phối cũng được ghi vào thư
+  mục phiên (`dieu-phoi/`). Chưa nhập key hoặc API lỗi thì app tự dùng nguyên
+  văn đáp án như trước, không kẹt phiên.
+- **Nhật ký thao tác**: panel riêng ở **đáy cửa sổ, rộng hết chiều ngang** (không
+  còn chen trong cột phải), chữ lớn và giãn dòng dễ đọc, có nút **Mở rộng** để
+  xem cao tới ~360px, **Copy nhật ký** và **Xoá**. Nút **Xuất kết quả** lưu toàn
+  bộ 12 đáp án thành 1 file Markdown, kèm mục **Kết luận tổng hợp cuối cùng —
+  Muse** nếu đã có.
 - Phiên làm việc được tự lưu (localStorage của app), tắt app mở lại không mất đáp án.
 
 Prompt, vai trò, form đáp án và cách ẩn danh vòng 2 bám đúng thiết kế của `hoi_dong.py`
@@ -128,18 +142,21 @@ ui/
     store/councilSlice.js— Redux Toolkit slice: trạng thái phiên, từng ô đáp án
     store/councilSaga.js — Redux Saga: copy prompt, dán đáp án, tự chuyển vòng, xuất file
     store/store.js       — store + tự lưu phiên vào localStorage
-    components/          — BotCard (thẻ thao tác), RoundStepper (thanh 3 vòng), FilesPanel (file & tiến trình, lịch sử phiên)
+    components/          — BotCard (thẻ thao tác), RoundStepper (thanh 3 vòng), FilesPanel (file & tiến trình, lịch sử phiên), GeminiPanel (điều phối Gemini API)
+    lib/gemini.js        — prompt điều phối Gemini (thẻ luận điểm, kiểm tra form, gói tổng hợp) + gọi API ở chế độ trình duyệt
+    electron/geminiApi.js— IPC gọi Gemini API từ tiến trình chính (bản Electron)
     App.jsx              — bố cục 1 màn hình, đồng bộ vị trí các view với Electron
 ```
 
-## Giới hạn của bản này (v1) và bước tiếp theo
+## Giới hạn của bản này và bước tiếp theo
 
-- Điều phối bằng **Gemini API** (tóm tắt thành thẻ luận điểm, chuẩn hoá form)
-  hiện vẫn nằm ở bản Python `hoi_dong.py` ở thư mục gốc.
-  Bản giao diện này chưa gọi Gemini API — vòng 2 dùng nguyên văn đáp án vòng 1
-  (đã ẩn danh) thay cho thẻ luận điểm rút gọn. Riêng **tổng hợp kết luận cuối**
-  nay đã có trong giao diện, do **Muse** đảm nhiệm qua tab Muse ở trên
-  (bán tự động copy/dán như các bot, không qua API).
-- Bước tiếp theo nếu cần: nối hai phần lại — Electron gọi các hàm điều phối
-  (plan / normalize / finalize) qua Gemini API ngay trong app, hoặc chạy
-  `hoi_dong.py` làm tiến trình con phía sau giao diện.
+- **Điều phối Gemini API đã có trong giao diện** (xem panel Điều phối ở trên):
+  tóm tắt thẻ luận điểm, kiểm tra form, gói tóm tắt trước tổng hợp — gọi qua
+  tiến trình chính của Electron (`electron/geminiApi.js`), model mặc định
+  `gemini-2.5-flash-lite`, đổi được sang `gemini-2.5-flash` trong panel.
+  **Tổng hợp kết luận cuối** vẫn do **Muse** đảm nhiệm qua tab Muse (đúng
+  phân vai hiện tại: Gemini điều phối ở giữa, Muse chốt cuối). Bản Python
+  `hoi_dong.py` ở thư mục gốc vẫn giữ vai điều phối riêng của nó khi chạy độc lập.
+- Hạn mức miễn phí của Gemini API (số lượt/ngày) do Google AI Studio của chính
+  tài khoản bạn quyết định; app báo rõ khi bị 429 (hết hạn mức) và tự rơi về
+  chế độ nguyên văn, không mất đáp án.

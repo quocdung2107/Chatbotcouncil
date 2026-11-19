@@ -16,6 +16,12 @@ contextBridge.exposeInMainWorld('councilApi', {
 // File he thong: moi ham deu di qua IPC cua main process — main chi ghi/xoa
 // trong thu muc lam viec nguoi dung da chon, doc file ngoai chi khi nguoi
 // dung tu chon bang hop thoai hoac keo-tha vao app.
+// Gemini API (dieu phoi): renderer gui kem API key theo tung lan goi;
+// main process moi la noi goi Google API that.
+contextBridge.exposeInMainWorld('councilGemini', {
+  generate: (payload) => ipcRenderer.invoke('gemini:generate', payload),
+});
+
 contextBridge.exposeInMainWorld('councilFs', {
   getState: () => ipcRenderer.invoke('fs:get-state'),
   chooseWorkDir: () => ipcRenderer.invoke('fs:choose-workdir'),

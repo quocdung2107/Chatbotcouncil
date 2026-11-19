@@ -8,6 +8,7 @@ const { app, BrowserWindow, WebContentsView, ipcMain, clipboard, dialog, session
 const path = require('path');
 const fs = require('fs');
 const { createFsApi } = require('./fsApi');
+const { createGeminiApi } = require('./geminiApi');
 
 const BOTS = [
   { id: 'chatgpt', url: 'https://chatgpt.com/' },
@@ -185,6 +186,11 @@ ipcMain.handle('file:save-text', async (_e, { filename, content }) => {
 // fs.watch bao tien trinh) — xem electron/fsApi.js. Renderer chi goi qua
 // window.councilFs o preload, khong cham truc tiep vao o dia.
 createFsApi({ app, getWindow: () => win });
+
+// ---- IPC Gemini API (dieu phoi): tom tat the luan diem, kiem tra form,
+// goi tom tat truoc tong hop — xem electron/geminiApi.js. API key do renderer
+// gui theo tung lan goi, main khong luu key.
+createGeminiApi();
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

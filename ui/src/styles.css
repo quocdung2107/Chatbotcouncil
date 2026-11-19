@@ -47,11 +47,37 @@ button.big { padding: 10px 18px; font-size: 15px; }
 .answer-box { width: 100%; font: inherit; font-size: 13px; border: 1px solid #c9c2b2; border-radius: 8px; padding: 8px; resize: vertical; }
 .char-count { font-size: 12px; color: #6f675a; }
 
-.log { background: #fffdf8; border: 1px solid #d8d1bf; border-radius: 12px; padding: 8px 12px; font-size: 12.5px; max-height: 220px; overflow-y: auto; }
-.log-item { padding: 3px 0; border-bottom: 1px dashed #eee7d6; }
+/* Nhat ky thao tac: panel day man hinh, rong bang cua so — chu 13.5px,
+   dong cao 1.6, gio co cot rieng nen khong vo dong nhu ban cu trong sidebar. */
+.log-panel { margin: 0 16px 14px; background: #fffdf8; border: 1px solid #d8d1bf; border-radius: 12px; display: flex; flex-direction: column; flex: none; }
+.log-panel-head { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid #eee7d6; }
+.log-panel-title { font-weight: 700; font-size: 14.5px; }
+.log-panel-count { font-size: 12.5px; color: #8a8172; }
+.log-panel-actions { margin-left: auto; display: flex; gap: 8px; }
+.log-panel-body { max-height: 132px; overflow-y: auto; padding: 6px 14px 10px; font-size: 13.5px; line-height: 1.6; }
+.log-panel.expanded .log-panel-body { max-height: 360px; }
+.log-item { display: flex; gap: 10px; padding: 4px 0; border-bottom: 1px dashed #eee7d6; }
 .log-item:last-child { border-bottom: 0; }
-.log-time { color: #8a8172; margin-right: 6px; }
-.log-empty { color: #8a8172; }
+.log-time { color: #8a8172; flex: none; font-variant-numeric: tabular-nums; }
+.log-text { word-break: break-word; }
+.log-empty { color: #8a8172; padding: 4px 0; }
+
+/* Panel dieu phoi Gemini API */
+.gemini-panel { background: #fffdf8; border: 1px solid #bcd3f7; border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+.gemini-head { display: flex; align-items: center; gap: 8px; }
+.gemini-title { font-weight: 700; font-size: 14px; }
+.gemini-state { margin-left: auto; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #eee9db; }
+.gemini-state.on { background: #dff3e2; }
+.gemini-note { font-size: 12.5px; color: #57503f; line-height: 1.5; margin: 0; }
+.gemini-label { display: flex; flex-direction: column; gap: 5px; font-weight: 600; font-size: 13px; }
+.gemini-label input, .gemini-label select { font: inherit; font-weight: 400; border: 1px solid #c9c2b2; border-radius: 8px; padding: 7px 9px; }
+.gemini-key-row { display: flex; gap: 8px; }
+.gemini-key-row input { flex: 1; min-width: 0; }
+.gemini-hint { font-size: 12px; color: #8a8172; line-height: 1.45; margin: 0; }
+.gemini-error { font-size: 12.5px; color: #9b2226; background: #fdecec; border: 1px solid #f3c2c2; border-radius: 8px; padding: 7px 9px; line-height: 1.45; word-break: break-word; }
+.gemini-details { font-size: 13px; }
+.gemini-details summary { cursor: pointer; font-weight: 600; padding: 3px 0; }
+.gemini-pre { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.55; background: #f4f2ec; border-radius: 8px; padding: 8px 10px; max-height: 260px; overflow-y: auto; margin: 4px 0 0; }
 
 .setup { max-width: 640px; margin: 24px auto; background: #fffdf8; border: 1px solid #d8d1bf; border-radius: 14px; padding: 24px 28px; display: flex; flex-direction: column; gap: 14px; height: fit-content; }
 .setup h1 { margin: 0; font-size: 22px; }
