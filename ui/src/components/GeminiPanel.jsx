@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { GEMINI_MODELS } from '../lib/gemini';
+import { GEMINI_MODELS, DEFAULT_GEMINI_MODEL, resolveGeminiModel } from '../lib/gemini';
 import {
   geminiTestRequested, geminiClaimCardsRequested, geminiFormCheckRequested, geminiSynthBriefRequested,
   selectRoundSavedCount,
@@ -21,7 +21,15 @@ export default function GeminiPanel() {
   const saved1 = useSelector((s) => selectRoundSavedCount(s, 1));
   const saved3 = useSelector((s) => selectRoundSavedCount(s, mode === 'fast' ? 1 : 3));
   const [apiKey, setApiKey] = useState(() => { try { return localStorage.getItem(KEY_STORAGE) || ''; } catch (_) { return ''; } });
-  const [model, setModel] = useState(() => { try { return localStorage.getItem(MODEL_STORAGE) || 'gemini-2.5-flash-lite'; } catch (_) { return 'gemini-2.5-flash-lite'; } });
+  // Model da luu tu ban cu (vd gemini-2.5-flash-lite — Google da ngung cap cho
+  // nguoi dung moi) tu dong di tru sang model moi tuong ung ngay khi mo panel.
+  const [model, setModel] = useState(() => {
+    try {
+      const resolved = resolveGeminiModel(localStorage.getItem(MODEL_STORAGE) || DEFAULT_GEMINI_MODEL);
+      localStorage.setItem(MODEL_STORAGE, resolved);
+      return resolved;
+    } catch (_) { return DEFAULT_GEMINI_MODEL; }
+  });
   const [showKey, setShowKey] = useState(false);
 
   const saveKey = (value) => {

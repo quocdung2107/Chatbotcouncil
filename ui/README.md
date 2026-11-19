@@ -153,7 +153,7 @@ ui/
 - **Điều phối Gemini API đã có trong giao diện** (xem panel Điều phối ở trên):
   tóm tắt thẻ luận điểm, kiểm tra form, gói tóm tắt trước tổng hợp — gọi qua
   tiến trình chính của Electron (`electron/geminiApi.js`), model mặc định
-  `gemini-2.5-flash-lite`, đổi được sang `gemini-2.5-flash` trong panel.
+  `gemini-3.5-flash-lite`, đổi được sang `gemini-3.8-flash` trong panel (Google đã ngừng cấp 2.5 Flash-Lite cho người dùng mới; tên model cũ đã lưu trong app sẽ tự được đổi sang bản mới).
   **Tổng hợp kết luận cuối** vẫn do **Muse** đảm nhiệm qua tab Muse (đúng
   phân vai hiện tại: Gemini điều phối ở giữa, Muse chốt cuối). Bản Python
   `hoi_dong.py` ở thư mục gốc vẫn giữ vai điều phối riêng của nó khi chạy độc lập.

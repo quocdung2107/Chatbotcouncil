@@ -59,8 +59,8 @@ ROLES_V1 = {
 # Vong 2: ai phan bien bai cua ai (vong tron, khong tu phan bien minh)
 CRITIQUE_OF = {"ChatGPT": "Claude", "Claude": "Gemini", "Gemini": "Copilot", "Copilot": "ChatGPT"}
 
-MODEL_LITE = os.environ.get("GEMINI_MODEL_LITE", "gemini-2.5-flash-lite")
-MODEL_FLASH = os.environ.get("GEMINI_MODEL_FLASH", "gemini-2.5-flash")
+MODEL_LITE = os.environ.get("GEMINI_MODEL_LITE", "gemini-3.5-flash-lite")  # Google da ngung cap 2.5 Flash-Lite cho nguoi dung moi (2026-11-19)
+MODEL_FLASH = os.environ.get("GEMINI_MODEL_FLASH", "gemini-3.8-flash")  # ban Flash con dung duoc cho tai khoan moi
 API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
 FORM_V1 = """## Ket luan ngan

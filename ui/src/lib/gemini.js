@@ -13,12 +13,26 @@
 
 import { BOTS, BOT_BY_ID, FORM_V1, FORM_V2 } from './council.js';
 
+// Google da ngung cap 2.5 Flash-Lite cho nguoi dung moi (thong bao chinh thuc
+// khi goi API 2026-11-19) — danh sach nay chi gom model con dung duoc cho
+// tai khoan moi: 3.5 Flash-Lite (nhe, mac dinh) va 3.8 Flash (manh hon).
 export const GEMINI_MODELS = [
-  { id: 'gemini-2.5-flash-lite', name: 'Flash-Lite (nhanh, tiết kiệm hạn mức — khuyên dùng cho tóm tắt/kiểm tra)' },
-  { id: 'gemini-2.5-flash', name: 'Flash (mạnh hơn — dùng khi tóm tắt chưa đạt)' },
+  { id: 'gemini-3.5-flash-lite', name: '3.5 Flash-Lite (nhanh, tiết kiệm hạn mức — khuyên dùng cho tóm tắt/kiểm tra)' },
+  { id: 'gemini-3.8-flash', name: '3.8 Flash (mạnh hơn — dùng khi tóm tắt chưa đạt)' },
 ];
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+const LEGACY_MODEL_MAP = {
+  'gemini-2.5-flash-lite': 'gemini-3.5-flash-lite',
+  'gemini-2.5-flash': 'gemini-3.8-flash',
+  'gemini-3.5-flash': 'gemini-3.8-flash',
+};
+export function resolveGeminiModel(model) {
+  if (GEMINI_MODELS.some((m) => m.id === model)) return model;
+  return LEGACY_MODEL_MAP[model] || DEFAULT_GEMINI_MODEL;
+}
 
 // Goi Gemini: ban Electron di qua main process (window.councilGemini);
 // che do trinh duyet thuong thi fetch thang (Google API cho phep CORS).
@@ -27,6 +41,7 @@ export async function callGemini({ apiKey, model, prompt }) {
   if (bridge?.generate) return bridge.generate({ apiKey, model, prompt });
   const key = String(apiKey || '').trim();
   if (!key) return { ok: false, error: 'Chưa nhập Gemini API key.' };
+  model = resolveGeminiModel(model);
   try {
     const res = await fetch(`${API_BASE}/${model}:generateContent`, {
       method: 'POST',
