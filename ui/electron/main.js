@@ -4,7 +4,7 @@
 // duoc luu tren dia, tat app mo lai van con. App chi mo/an cac view va xu ly
 // clipboard + luu file; viec dan prompt, bam Gui, copy dap an van do nguoi
 // dung lam tay trong tung trang chatbot (ban tu dong, dung chinh sach).
-const { app, BrowserWindow, WebContentsView, ipcMain, clipboard, dialog } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, clipboard, dialog, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -18,15 +18,25 @@ const BOTS = [
 let win = null;
 const views = new Map(); // id -> WebContentsView
 
+// Khai bao nhu Chrome that tren Windows: User-Agent mac dinh cua Electron co
+// chua chu "Electron/..." nen cac trang dung Cloudflare (claude.ai, chatgpt.com)
+// rat hay chan o buoc xac thuc bot. Bo chu Electron di giup qua duoc nhieu
+// truong hop hon, nhung khong dam bao 100% vi Cloudflare con kiem tra dau van
+// tay trinh duyet khac.
+const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
 function getOrCreateView(bot) {
   if (views.has(bot.id)) return views.get(bot.id);
+  const ses = session.fromPartition(`persist:council-${bot.id}`);
+  ses.setUserAgent(CHROME_UA);
   const view = new WebContentsView({
     webPreferences: {
-      partition: `persist:council-${bot.id}`,
+      session: ses,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+  view.webContents.setUserAgent(CHROME_UA);
   view.webContents.loadURL(bot.url);
   views.set(bot.id, view);
   return view;
