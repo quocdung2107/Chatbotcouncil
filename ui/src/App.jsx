@@ -5,8 +5,8 @@ import {
   topicChanged, startSession, selectBot, setViewMode, markSent,
   answerEdited, saveAnswer, resetAll,
   synthesisMarkSent, synthesisAnswerEdited, synthesisSaved,
-  copyPromptRequested, pasteAnswerRequested, exportRequested,
-  copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
+  copyPromptRequested, pasteAnswerRequested, fetchAnswerRequested, exportRequested,
+  copySynthesisPromptRequested, pasteSynthesisAnswerRequested, fetchSynthesisAnswerRequested,
   filesInitRequested, refreshFilesRequested, contextLoaded, recentFilesUpdated, logAdded, logCleared,
   openSessionRequested, dropAnswerFileRequested,
   selectRoundSavedCount, selectTotalSavedCount, STATUS,
@@ -245,6 +245,7 @@ export default function App() {
                   onCopy={() => dispatch(copyPromptRequested(bot.id))}
                   onSent={() => dispatch(markSent(bot.id))}
                   onPaste={() => dispatch(pasteAnswerRequested(bot.id))}
+                  onFetch={() => dispatch(fetchAnswerRequested(bot.id))}
                   onSave={() => dispatch(saveAnswer(bot.id))}
                   onEdit={(value) => dispatch(answerEdited({ botId: bot.id, answer: value }))}
                   onReload={() => apiCall('reloadBot', bot.id)}
@@ -263,6 +264,7 @@ export default function App() {
                 onCopy={() => dispatch(copySynthesisPromptRequested())}
                 onSent={() => dispatch(synthesisMarkSent())}
                 onPaste={() => dispatch(pasteSynthesisAnswerRequested())}
+                onFetch={() => dispatch(fetchSynthesisAnswerRequested())}
                 onSave={() => dispatch(synthesisSaved())}
                 onEdit={(value) => dispatch(synthesisAnswerEdited(value))}
                 onReload={() => apiCall('reloadBot', 'muse')}

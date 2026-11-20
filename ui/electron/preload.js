@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('councilApi', {
   layoutViews: (payload) => ipcRenderer.invoke('views:layout', payload),
   hideViews: () => ipcRenderer.invoke('views:hide'),
   reloadBot: (botId) => ipcRenderer.invoke('views:reload', botId),
+  extractAnswer: (botId) => ipcRenderer.invoke('views:extract-answer', botId),
   newSession: (botId) => ipcRenderer.invoke('views:new-session', botId),
   clipboardWrite: (text) => ipcRenderer.invoke('clipboard:write', text),
   clipboardRead: () => ipcRenderer.invoke('clipboard:read'),

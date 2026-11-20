@@ -5,13 +5,14 @@ export const STATUS_LABEL = {
   [STATUS.idle]: 'Chưa làm',
   [STATUS.prompt_ready]: 'Đã copy prompt',
   [STATUS.sent]: 'Đã gửi — chờ đáp án',
+  [STATUS.fetched]: 'Đã lấy về — chờ bạn duyệt',
   [STATUS.saved]: 'Đã lưu đáp án',
 };
 
 // The trang thai + cac nut thao tac cua 1 bot trong vong hien tai.
 // Quy trinh ban tu dong: Copy prompt -> (dan + Gui bang tay trong tab) ->
 // "Da gui" -> copy dap an trong tab -> "Dan dap an ve".
-export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent, onPaste, onSave, onEdit, onReload, onNewSession, browserMode, synth, onDropFile }) {
+export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent, onPaste, onFetch, onSave, onEdit, onReload, onNewSession, browserMode, synth, onDropFile }) {
   const [dragOver, setDragOver] = useState(false);
   return (
     <div
@@ -49,11 +50,21 @@ export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent,
           </div>
           <div className="btn-row">
             <button type="button" onClick={onSent} disabled={cell.status === STATUS.saved}>2 · Tôi đã dán + bấm Gửi</button>
-            <button type="button" className="primary" onClick={onPaste}>3 · Dán đáp án về</button>
+            {browserMode ? (
+              <button type="button" className="primary" onClick={onPaste}>3 · Dán đáp án về</button>
+            ) : (
+              <button type="button" className="primary" onClick={onFetch} title="App tự đọc khối đáp án mới nhất ngay trong tab của bot và điền vào ô dưới — không cần bôi đen copy">3 · ⬇ Lấy đáp án từ tab</button>
+            )}
           </div>
+          {!browserMode && (
+            <div className="btn-row">
+              <button type="button" onClick={onPaste} title="Cách cũ, dự phòng khi nút lấy từ tab không đọc được trang">Dán từ clipboard (dự phòng)</button>
+              {cell.status === STATUS.fetched && <span className="char-count">Đáp án đã về ô dưới — đọc lại rồi bấm Lưu.</span>}
+            </div>
+          )}
           <textarea
             className="answer-box"
-            placeholder={synth ? 'Kết luận tổng hợp của Muse sẽ hiện ở đây sau khi dán về — bạn cũng có thể dán/sửa tay rồi bấm Lưu.' : 'Đáp án của bot sẽ hiện ở đây sau khi dán về — bạn cũng có thể dán/sửa tay rồi bấm Lưu.'}
+            placeholder={synth ? 'Kết luận tổng hợp của Muse sẽ hiện ở đây sau khi bấm "Lấy đáp án từ tab" — đọc lại, sửa nếu cần rồi mới bấm Lưu.' : 'Đáp án của bot sẽ hiện ở đây sau khi bấm "Lấy đáp án từ tab" — đọc lại, sửa nếu cần rồi mới bấm Lưu.'}
             value={cell.answer}
             onChange={(e) => onEdit(e.target.value)}
             rows={7}

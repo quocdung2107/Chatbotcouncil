@@ -5,6 +5,7 @@ export const STATUS = {
   idle: 'idle', // chua lam gi
   prompt_ready: 'prompt_ready', // da copy prompt
   sent: 'sent', // nguoi dung da dan + bam Gui trong trang chatbot
+  fetched: 'fetched', // da lay/dan dap an ve o nhap — cho nguoi dung duyet roi moi Luu
   saved: 'saved', // da co dap an luu ve
 };
 
@@ -92,6 +93,16 @@ const councilSlice = createSlice({
       cell.status = STATUS.saved;
       state.log.unshift({ time: timeNow(), text: `Đã lưu đáp án vòng ${state.round} của ${botId} (${answer.length} ký tự).` });
     },
+    answerFetched(state, action) {
+      // Lay dap an tu tab (1 nut bam) hoac dan tu clipboard: chi dien vao o
+      // nhap va danh dau "cho duyet" — CHUA luu, CHUA ghi file, CHUA chuyen
+      // vong. Nguoi dung doc lai/sua roi bam "Luu dap an" moi co hieu luc.
+      const { botId, answer } = action.payload;
+      const cell = state.answers[state.round][botId];
+      cell.answer = answer;
+      if (cell.status !== STATUS.saved) cell.status = STATUS.fetched;
+      state.log.unshift({ time: timeNow(), text: `Đã lấy đáp án vòng ${state.round} của ${botId} về ô nhập (${answer.length} ký tự) — hãy đọc lại, sửa nếu cần, rồi bấm "Lưu đáp án".` });
+    },
     answerEdited(state, action) {
       const { botId, answer } = action.payload;
       state.answers[state.round][botId].answer = answer;
@@ -128,6 +139,11 @@ const councilSlice = createSlice({
       state.synthesis.status = STATUS.saved;
       state.phase = 'done';
       state.log.unshift({ time: timeNow(), text: `Đã lưu KẾT LUẬN TỔNG HỢP của Muse (${action.payload.length} ký tự). Bấm "Xuất kết quả" để lưu file có kèm kết luận này.` });
+    },
+    synthesisAnswerFetched(state, action) {
+      state.synthesis.answer = action.payload;
+      if (state.synthesis.status !== STATUS.saved) state.synthesis.status = STATUS.fetched;
+      state.log.unshift({ time: timeNow(), text: `Đã lấy KẾT LUẬN TỔNG HỢP từ tab Muse về ô nhập (${action.payload.length} ký tự) — hãy đọc lại rồi bấm "Lưu đáp án".` });
     },
     synthesisAnswerEdited(state, action) {
       state.synthesis.answer = action.payload;
@@ -243,9 +259,11 @@ const councilSlice = createSlice({
     // Cac action duoi day do Saga xu ly (khong doi state truc tiep):
     copyPromptRequested() {},
     pasteAnswerRequested() {},
+    fetchAnswerRequested() {},
     exportRequested() {},
     copySynthesisPromptRequested() {},
     pasteSynthesisAnswerRequested() {},
+    fetchSynthesisAnswerRequested() {},
     filesInitRequested() {},
     chooseWorkDirRequested() {},
     loadContextRequested() {},
@@ -264,13 +282,14 @@ export const {
   topicChanged, startSession, selectBot, setViewMode, promptCopied, markSent,
   answerPasted, answerEdited, saveAnswer, nextRound, finishSession,
   synthesisPromptCopied, synthesisMarkSent, synthesisAnswerPasted,
-  synthesisAnswerEdited, synthesisSaved,
+  synthesisAnswerFetched, synthesisAnswerEdited, synthesisSaved,
+  answerFetched,
   exportDone, logAdded, logCleared, resetAll,
   geminiBusy, geminiFailed, claimCardsReady, formReportReady, synthBriefReady, geminiTestOk,
   filesStateLoaded, workDirChanged, sessionFolderReady, sessionFilesUpdated,
   recentFilesUpdated, historyUpdated, contextLoaded, contextCleared, sessionRestored,
-  copyPromptRequested, pasteAnswerRequested, exportRequested,
-  copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
+  copyPromptRequested, pasteAnswerRequested, fetchAnswerRequested, exportRequested,
+  copySynthesisPromptRequested, pasteSynthesisAnswerRequested, fetchSynthesisAnswerRequested,
   filesInitRequested, chooseWorkDirRequested, loadContextRequested,
   restoreSessionRequested, openSessionRequested, dropAnswerFileRequested,
   refreshFilesRequested,

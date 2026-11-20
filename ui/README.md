@@ -14,7 +14,7 @@ việc gõ lệnh trong Terminal của bản `hoi_dong.py`: mọi thao tác copy
   (Chưa làm → Đã copy prompt → Đã gửi → Đã lưu đáp án) và đúng 3 nút theo thứ tự:
   1. **Copy prompt vòng này** — app tự soạn prompt đúng vai/form của vòng rồi đưa vào clipboard.
   2. **Tôi đã dán + bấm Gửi** — bạn tự dán (Ctrl+V) và bấm Gửi trong tab chatbot, xong bấm nút này.
-  3. **Dán đáp án về** — bạn copy đáp án trong tab chatbot, bấm nút này để app lưu vào đúng ô.
+  3. **⬇ Lấy đáp án từ tab** — bấm 1 nút, app tự đọc khối đáp án mới nhất ngay trong tab chatbot và điền vào ô đáp án (không cần bôi đen + copy nữa). Bạn **đọc lại/sửa trong ô** rồi bấm **Lưu đáp án** mới tính là lưu. Nếu nút này báo không đọc được (trang chatbot đổi giao diện), dùng nút **Dán từ clipboard (dự phòng)**: copy đáp án trong tab như cách cũ rồi bấm — đáp án cũng về ô để bạn duyệt trước khi Lưu. Nút lấy từ tab chỉ có ở bản Electron; bản trình duyệt dùng nút dán.
 - **Thanh tiến độ trên đầu**: Vòng 1 đề xuất mù → Vòng 2 phản biện chéo ẩn danh →
   Vòng 3 tác giả sửa bài → **Tổng hợp**. Đủ 4/4 đáp án của một vòng, app tự chuyển vòng.
 - **Tab Muse — Tổng hợp (bước cuối, sau vòng 3)**: một tab riêng mở
@@ -72,7 +72,7 @@ không cắt vòng nào.
     file này được app đính vào prompt vòng 1 của mỗi phiên mới.
   - `01-chatgpt/`, `02-claude/`, `03-gemini/`, `04-copilot/` — mỗi bot một
     thư mục riêng, trong đó `vong-1.md`, `vong-2.md`, `vong-3.md` tự ghi ngay
-    khi bạn bấm "Dán đáp án về" / "Lưu đáp án" (giữ nguyên 3 vòng × 4 bot)
+    khi bạn bấm "Lưu đáp án" sau khi lấy/dán đáp án về ô nhập (giữ nguyên 3 vòng × 4 bot)
   - `05-muse/ket-luan-cuoi.md` — kết luận tổng hợp cuối của Muse, và
     `ket-qua-hoi-dong.md` — bản xuất toàn bộ phiên (nút "Xuất kết quả" cũng ghi
     thẳng vào đây khi phiên đã có thư mục; tên file xuất mặc định theo ngày +

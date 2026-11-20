@@ -41,6 +41,7 @@ button.big { padding: 10px 18px; font-size: 15px; }
 .status { margin-left: auto; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #eee9db; }
 .status-prompt_ready { background: #fdeec9; }
 .status-sent { background: #dbeafe; }
+.status-fetched { background: #fde68a; }
 .status-saved { background: #dff3e2; }
 .bot-card-body { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; cursor: default; }
 .btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

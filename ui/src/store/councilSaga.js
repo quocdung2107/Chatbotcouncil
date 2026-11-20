@@ -6,14 +6,14 @@ import {
 } from '../lib/council';
 import { callGemini, buildClaimCardsPrompt, buildFormCheckPrompt, buildSynthBriefPrompt } from '../lib/gemini';
 import {
-  copyPromptRequested, pasteAnswerRequested, exportRequested,
-  copySynthesisPromptRequested, pasteSynthesisAnswerRequested,
+  copyPromptRequested, pasteAnswerRequested, fetchAnswerRequested, exportRequested,
+  copySynthesisPromptRequested, pasteSynthesisAnswerRequested, fetchSynthesisAnswerRequested,
   filesInitRequested, chooseWorkDirRequested, loadContextRequested,
   restoreSessionRequested, openSessionRequested, dropAnswerFileRequested,
   refreshFilesRequested,
   geminiTestRequested, geminiClaimCardsRequested, geminiFormCheckRequested, geminiSynthBriefRequested,
-  promptCopied, answerPasted, saveAnswer, nextRound, finishSession,
-  synthesisPromptCopied, synthesisAnswerPasted, synthesisSaved,
+  promptCopied, answerPasted, answerFetched, saveAnswer, nextRound, finishSession,
+  synthesisPromptCopied, synthesisAnswerPasted, synthesisAnswerFetched, synthesisSaved,
   geminiBusy, geminiFailed, claimCardsReady, formReportReady, synthBriefReady, geminiTestOk,
   startSession,
   exportDone, logAdded, selectCouncil, selectRoundComplete,
@@ -95,7 +95,9 @@ function* copyPromptSaga(action) {
   yield put(promptCopied(botId));
 }
 
-// 2) Dan dap an tu clipboard ve dung o cua bot
+// 2) Dan dap an tu clipboard ve o nhap cua bot (cach cu, du phong khi nut
+// "Lay dap an tu tab" khong doc duoc trang). Cung chi dien vao o nhap de
+// nguoi dung duyet — bam "Luu dap an" moi ghi file/chuyen vong.
 function* pasteAnswerSaga(action) {
   const botId = action.payload;
   const text = yield call(clipboardRead);
@@ -103,7 +105,40 @@ function* pasteAnswerSaga(action) {
     yield put(logAdded('Clipboard đang trống — hãy copy đáp án trong trang chatbot trước rồi bấm lại nút dán.'));
     return;
   }
-  yield put(answerPasted({ botId, answer: String(text) }));
+  yield put(answerFetched({ botId, answer: String(text) }));
+}
+
+// 2b) LAY DAP AN TU TAB bang 1 nut bam: Electron doc khoi dap an assistant
+// gan nhat ngay trong tab chatbot (khong can boi den + Ctrl+C), dien vao o
+// nhap de nguoi dung doc lai/sua roi moi bam "Luu dap an".
+function* fetchAnswerSaga(action) {
+  const botId = action.payload;
+  const api = getApi();
+  if (!api?.extractAnswer) {
+    yield put(logAdded('Nút lấy đáp án từ tab chỉ có ở bản app Electron (bản trình duyệt không đọc được nội dung tab khác). Hãy dùng nút "Dán từ clipboard" ở chế độ này.'));
+    return;
+  }
+  const result = yield call(api.extractAnswer, botId);
+  if (!result?.ok) {
+    yield put(logAdded(`Không lấy được đáp án của ${botId}: ${result?.error || 'lỗi không rõ'}`));
+    return;
+  }
+  yield put(answerFetched({ botId, answer: String(result.text) }));
+}
+
+// 2c) Tuong tu cho ket luan tong hop o tab Muse.
+function* fetchSynthesisAnswerSaga() {
+  const api = getApi();
+  if (!api?.extractAnswer) {
+    yield put(logAdded('Nút lấy kết luận từ tab chỉ có ở bản app Electron. Hãy dùng nút "Dán từ clipboard" ở chế độ trình duyệt.'));
+    return;
+  }
+  const result = yield call(api.extractAnswer, 'muse');
+  if (!result?.ok) {
+    yield put(logAdded(`Không lấy được kết luận từ tab Muse: ${result?.error || 'lỗi không rõ'}`));
+    return;
+  }
+  yield put(synthesisAnswerFetched(String(result.text)));
 }
 
 // 3) Sau moi lan luu dap an: GHI FILE cua dap an do truoc (giu nguyen 3 vong —
@@ -187,14 +222,15 @@ function* copySynthesisPromptSaga() {
   yield put(synthesisPromptCopied());
 }
 
-// 6) Dan ket luan tong hop tu tab Muse ve
+// 6) Dan ket luan tong hop tu clipboard ve o nhap (du phong) — cung cho
+// nguoi dung duyet roi moi Luu, giong nut lay tu tab.
 function* pasteSynthesisAnswerSaga() {
   const text = yield call(clipboardRead);
   if (!text || !String(text).trim()) {
     yield put(logAdded('Clipboard đang trống — hãy copy kết luận trong tab Muse trước rồi bấm lại nút dán.'));
     return;
   }
-  yield put(synthesisAnswerPasted(String(text)));
+  yield put(synthesisAnswerFetched(String(text)));
 }
 
 // ---- Workflow file ----
@@ -398,6 +434,8 @@ export default function* rootSaga() {
   yield all([
     takeEvery(copyPromptRequested.type, copyPromptSaga),
     takeEvery(pasteAnswerRequested.type, pasteAnswerSaga),
+    takeEvery(fetchAnswerRequested.type, fetchAnswerSaga),
+    takeEvery(fetchSynthesisAnswerRequested.type, fetchSynthesisAnswerSaga),
     takeEvery([answerPasted.type, saveAnswer.type], afterSaveSaga),
     takeEvery([synthesisAnswerPasted.type, synthesisSaved.type], afterSynthesisSaga),
     takeEvery(exportRequested.type, exportSaga),

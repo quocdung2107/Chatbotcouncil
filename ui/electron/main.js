@@ -9,6 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const { createFsApi } = require('./fsApi');
 const { createGeminiApi } = require('./geminiApi');
+const { extractFromView } = require('./answerExtract');
 
 const BOTS = [
   { id: 'chatgpt', url: 'https://chatgpt.com/' },
@@ -156,6 +157,14 @@ function createWindow() {
 // ---- IPC: renderer <-> main ----
 ipcMain.handle('views:layout', (_e, payload) => { layoutViews(payload || {}); return true; });
 ipcMain.handle('views:hide', () => { hideAllViews(); return true; });
+// Lay dap an cuoi cung cua chatbot ngay trong tab cua no (nut 1 cham o the
+// bot) — chi doc khi nguoi dung bam nut, ket qua ve o nhap de duyet roi moi
+// luu. Xem electron/answerExtract.js.
+ipcMain.handle('views:extract-answer', async (_e, botId) => {
+  const view = views.get(botId);
+  if (!view) return { ok: false, error: 'Tab này chưa được mở trong app — hãy bấm vào thẻ của bot để mở tab trước, đợi bot trả lời xong rồi bấm lại.' };
+  return extractFromView(view, botId);
+});
 ipcMain.handle('views:reload', (_e, botId) => {
   const bot = VIEWS.find((b) => b.id === botId);
   if (bot) getOrCreateView(bot).webContents.reload();
