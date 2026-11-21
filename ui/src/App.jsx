@@ -62,11 +62,21 @@ export default function App() {
   };
   const totalSaved = useSelector(selectTotalSavedCount);
   const browserRef = useRef(null);
-  // Bot dang duoc chon cho VUNG THAO TAC GHIM (doc lap voi tab trang web
-  // dang chon — doi bot chi doi noi dung vung ghim, khong day noi dung xuong).
+  // Bot dang duoc chon cho VUNG THAO TAC GHIM o COT PHAI (doc lap voi tab
+  // trang web dang chon — doi bot chi doi noi dung vung ghim, khong day noi
+  // dung xuong).
   const [dialogBotId, setDialogBotId] = useState('');
-  // Tab cua sidebar: thao tac | tep | dieu phoi (Gemini). Mac dinh Thao tac.
-  const [sidebarTab, setSidebarTab] = useState('actions');
+  // BO CUC 3 COT: cot trai ("noi xem thong tin") chi con 2 tab noi dung
+  // (tep | dieu phoi); thao tac da tach han sang cot phai ("noi bam").
+  const [leftTab, setLeftTab] = useState('files');
+  // Cot trai thu gon duoc bang nut o top bar (man 1366px hep thi thu vao de
+  // trang chatbot rong ra); trang thai luu localStorage, mac dinh MO.
+  const [leftCollapsed, setLeftCollapsed] = useState(() => {
+    try { return localStorage.getItem('hoi-dong-left-collapsed') === '1'; } catch (_) { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('hoi-dong-left-collapsed', leftCollapsed ? '1' : '0'); } catch (_) { /* bo qua */ }
+  }, [leftCollapsed]);
   // Dang chay trong Electron (co window.councilApi) hay trinh duyet thuong?
   // Trinh duyet thuong khong nhung duoc chatbot — phai co nut mo tab that.
   const isElectron = typeof window !== 'undefined' && !!window.councilApi;
@@ -237,7 +247,7 @@ export default function App() {
     }
     const bot = BOTS.find((b) => b.id === dialogBotId);
     if (!bot) {
-      return <div className="pinned-empty">Bấm vào 1 thẻ bot ở trên để mở vùng thao tác của bot đó tại đây.</div>;
+      return <div className="pinned-empty">Bấm vào 1 thẻ bot ở cột trái để mở vùng thao tác của bot đó tại đây.</div>;
     }
     return (
       <BotDialog
@@ -269,7 +279,7 @@ export default function App() {
     );
   };
 
-  const openBot = (botId) => { dispatch(selectBot(botId)); setDialogBotId(botId); setSidebarTab('actions'); };
+  const openBot = (botId) => { dispatch(selectBot(botId)); setDialogBotId(botId); };
 
   return (
     <div
@@ -281,6 +291,16 @@ export default function App() {
       {isDragging && <div className="drop-overlay">Thả file .txt / .md / .json vào đây để nạp làm ngữ cảnh cho hội đồng</div>}
       <header className="topbar">
         <div className="brand">🗣️ Chat Hội Đồng</div>
+        {phase !== 'setup' && (
+          <button
+            type="button"
+            className="left-toggle"
+            onClick={() => setLeftCollapsed((v) => !v)}
+            title={leftCollapsed ? 'Mở cột thông tin bên trái' : 'Thu gọn cột thông tin bên trái để trang chatbot ở giữa rộng hơn'}
+          >
+            {leftCollapsed ? '▶ Mở cột trái' : '◀ Thu gọn cột trái'}
+          </button>
+        )}
         {phase !== 'setup' && <div className="topic-title" title={topic.title}>{topic.title}</div>}
         <div className="topbar-right">
           <span className="progress">Tiến độ: {totalSaved}/12 đáp án</span>
@@ -296,33 +316,6 @@ export default function App() {
           )}
         </div>
       </header>
-
-      {phase !== 'setup' && (
-        <RoundStepper
-          round={round}
-          savedCounts={savedCounts}
-          phase={phase}
-          synthesisSaved={synthesis?.status === STATUS.saved}
-          mode={topic.mode}
-          answers={answers}
-          synthesis={synthesis}
-        />
-      )}
-
-      {phase !== 'setup' && (
-        <div className="action-row">
-          <NextActionBar onOpenBot={openBot} />
-          <button
-            type="button"
-            className="compare-btn"
-            disabled={!compareEnabled}
-            onClick={openCompare}
-            title={compareEnabled ? 'Mở cửa sổ riêng xem các đáp án đã lưu của vòng này cạnh nhau' : 'Cần ít nhất 2 đáp án ĐÃ LƯU trong vòng hiện tại mới so sánh được'}
-          >
-            📊 So sánh đáp án
-          </button>
-        </div>
-      )}
 
       <div className="main-row">
         {phase === 'setup' ? (
@@ -402,12 +395,66 @@ export default function App() {
           </section>
         ) : (
           <>
+            {leftCollapsed ? (
+              <div className="left-rail">
+                <button type="button" className="rail-btn" onClick={() => setLeftCollapsed(false)} title="Mở cột thông tin bên trái">▶</button>
+                <span className="rail-text">Tổng quan</span>
+              </div>
+            ) : (
+              <aside className="left-panel">
+                <div className="left-scroll">
+                  <div className="left-overview">
+                    <div className="sidebar-title">Tổng quan phiên</div>
+                    <RoundStepper
+                      vertical
+                      round={round}
+                      savedCounts={savedCounts}
+                      phase={phase}
+                      synthesisSaved={synthesis?.status === STATUS.saved}
+                      mode={topic.mode}
+                      answers={answers}
+                      synthesis={synthesis}
+                    />
+                    <div className="sidebar-title">Vòng {round} — bấm thẻ để chọn bot</div>
+                    <div className="bot-list">
+                      {BOTS.map((bot) => (
+                        <BotCard
+                          key={bot.id}
+                          bot={bot}
+                          cell={answers[round][bot.id]}
+                          isActive={dialogBotId === bot.id}
+                          onSelect={() => openBot(bot.id)}
+                          onDropFile={handleBotDrop}
+                        />
+                      ))}
+                      <div className="sidebar-title">Tổng hợp</div>
+                      <BotCard
+                        bot={SYNTH_BOT}
+                        cell={synthesis || { status: STATUS.idle, answer: '' }}
+                        isActive={dialogBotId === 'muse'}
+                        onSelect={() => openBot('muse')}
+                        onDropFile={handleBotDrop}
+                      />
+                    </div>
+                  </div>
+                  <div className="left-tabs" role="tablist" aria-label="Tệp và điều phối">
+                    <button type="button" role="tab" aria-selected={leftTab === 'files'} className={leftTab === 'files' ? 'on' : ''} onClick={() => setLeftTab('files')}>📁 Tệp</button>
+                    <button type="button" role="tab" aria-selected={leftTab === 'gemini'} className={leftTab === 'gemini' ? 'on' : ''} onClick={() => setLeftTab('gemini')}>
+                      🤖 Điều phối{consentPending && <span className="tab-dot" title="Chưa xử lý cảnh báo gửi nội dung lên Gemini API" aria-label="Chưa xử lý cảnh báo Gemini" />}
+                    </button>
+                  </div>
+                  {leftTab === 'files' ? <FilesPanel /> : <GeminiPanel />}
+                </div>
+                <LogPanel log={log} />
+              </aside>
+            )}
+
             <section className="browser-area" ref={browserRef}>
               <div className="browser-placeholder">
                 {isElectron
                   ? (viewMode === 'tabs'
                     ? `Đang hiển thị tab của ${[...BOTS, SYNTH_BOT].find((b) => b.id === activeBotId)?.name}. Lần đầu dùng, hãy đăng nhập ngay trong tab này — app sẽ nhớ đăng nhập cho lần sau.`
-                    : 'Đang hiển thị cả 4 chatbot cùng lúc. Bấm vào thẻ bot ở cột phải để làm việc với từng bot. Tab Muse (tổng hợp) chỉ hiện ở chế độ 1 tab.')
+                    : 'Đang hiển thị cả 4 chatbot cùng lúc. Bấm vào thẻ bot ở cột trái để làm việc với từng bot ở bảng thao tác bên phải. Tab Muse (tổng hợp) chỉ hiện ở chế độ 1 tab.')
                   : (
                     <div className="open-bots">
                       <p><strong>Bạn đang chạy giao diện bằng trình duyệt thường</strong> nên các chatbot không nhúng trong khung này được (chỉ bản app Electron mới nhúng được). Hãy bấm nút của từng chatbot để mở tab thật, đăng nhập ngay trong tab đó:</p>
@@ -422,68 +469,36 @@ export default function App() {
               </div>
             </section>
 
-            <aside className="sidebar">
-              <div className="sidebar-tabs" role="tablist" aria-label="Các khu vực của cột thao tác">
-                <button type="button" role="tab" aria-selected={sidebarTab === 'actions'} className={sidebarTab === 'actions' ? 'on' : ''} onClick={() => setSidebarTab('actions')}>🎯 Thao tác</button>
-                <button type="button" role="tab" aria-selected={sidebarTab === 'files'} className={sidebarTab === 'files' ? 'on' : ''} onClick={() => setSidebarTab('files')}>📁 Tệp</button>
-                <button type="button" role="tab" aria-selected={sidebarTab === 'gemini'} className={sidebarTab === 'gemini' ? 'on' : ''} onClick={() => setSidebarTab('gemini')}>
-                  🤖 Điều phối{consentPending && <span className="tab-dot" title="Chưa xử lý cảnh báo gửi nội dung lên Gemini API" aria-label="Chưa xử lý cảnh báo Gemini" />}
+            <aside className="right-panel">
+              <div className="action-stack">
+                <NextActionBar onOpenBot={openBot} />
+                <button
+                  type="button"
+                  className="compare-btn"
+                  disabled={!compareEnabled}
+                  onClick={openCompare}
+                  title={compareEnabled ? 'Mở cửa sổ riêng xem các đáp án đã lưu của vòng này cạnh nhau' : 'Cần ít nhất 2 đáp án ĐÃ LƯU trong vòng hiện tại mới so sánh được'}
+                >
+                  📊 So sánh đáp án
                 </button>
               </div>
-
-              {sidebarTab === 'actions' && (
-                <div className="tab-actions">
-                  <div className="bot-list">
-                    <div className="sidebar-title">Vòng {round} — thao tác cho từng bot</div>
-                    {BOTS.map((bot) => (
-                      <BotCard
-                        key={bot.id}
-                        bot={bot}
-                        cell={answers[round][bot.id]}
-                        isActive={dialogBotId === bot.id}
-                        onSelect={() => openBot(bot.id)}
-                        onDropFile={handleBotDrop}
-                      />
-                    ))}
-                    <div className="sidebar-title">Tổng hợp</div>
-                    <BotCard
-                      bot={SYNTH_BOT}
-                      cell={synthesis || { status: STATUS.idle, answer: '' }}
-                      isActive={dialogBotId === 'muse'}
-                      onSelect={() => openBot('muse')}
-                      onDropFile={handleBotDrop}
-                    />
-                  </div>
-                  <div className="pinned-area">
-                    {renderPinnedDialog()}
-                  </div>
-                </div>
-              )}
-
-              {sidebarTab === 'files' && (
-                <div className="tab-scroll">
-                  <FilesPanel />
-                </div>
-              )}
-
-              {sidebarTab === 'gemini' && (
-                <div className="tab-scroll">
-                  <GeminiPanel />
-                </div>
-              )}
+              <div className="pinned-area">
+                {renderPinnedDialog()}
+              </div>
             </aside>
           </>
         )}
       </div>
 
-      <LogPanel log={log} />
+      {phase === 'setup' && <LogPanel log={log} />}
     </div>
   );
 }
 
-// Nhat ky thao tac: panel RIENG o day man hinh, rong bang ca cua so (truoc
-// day nam chen trong cot phai 380px nen chu bi vo dong, khong doc duoc).
-// Mac dinh cao vua phai, bam "Mo rong" de doc thoai mai; co Copy va Xoa.
+// Nhat ky thao tac: o man hinh bat dau van la panel day man hinh; khi dang
+// chay phien (bo cuc 3 cot) no nam o DAY COT TRAI, cao ~150px, bam "Mo rong"
+// de doc thoai mai; co Copy va Xoa. CSS rieng cho 2 vi tri nam o styles.css
+// (.log-panel mac dinh + .left-panel .log-panel).
 function LogPanel({ log }) {
   const dispatch = useDispatch();
   const [expanded, setExpanded] = useState(false);

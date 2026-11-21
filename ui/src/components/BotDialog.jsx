@@ -1,12 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { STATUS } from '../store/councilSlice';
 import { BotAvatar } from './BotCard';
+import Badge from './Badge';
 import { getCustomSelector } from '../lib/answerSettings';
 import { confidenceReasons, confidenceBand } from '../lib/confidence';
 
-// VUNG THAO TAC GHIM cua bot dang chon (ban lam lai UI) — nam co dinh ben
-// duoi danh sach the bot trong tab Thao tac, co cuon rieng; doi bot chi doi
+// VUNG THAO TAC GHIM cua bot dang chon (ban lam lai UI) — nam co dinh o
+// COT PHAI ("noi bam"), co cuon rieng; doi bot (bam the o cot trai) chi doi
 // noi dung vung nay, khong con dialog bung xuong day cac the khac nhu ban cu.
+// MOI BUOC co 1 DAI MAU rieng o tieu de (chi la mau BUOC, khac mau Badge
+// TRANG THAI): buoc 1 xanh la, buoc 2 cam/vang, buoc 3 tim — hoc theo
+// mockup Gemini nguoi dung thich, giup quet mat la biet dang o buoc nao.
 //
 // LUONG 3 BUOC MEM:
 //   ① Chuan bi cau hoi -> ② Gui va cho -> ③ Lay ve, kiem tra va luu
@@ -26,7 +30,7 @@ const STEP_TITLES = {
 
 function StepBlock({ no, state, onHeadClick, children }) {
   return (
-    <div className={`step-block step-${state}`}>
+    <div className={`step-block step-${state} stepc-${no}`}>
       <button type="button" className="step-block-head" onClick={onHeadClick} title="Bấm để mở bước này">
         <span>{STEP_TITLES[no]}</span>
         {state === 'done' && <span className="step-state">✓ Xong</span>}
@@ -80,6 +84,7 @@ export default function BotDialog({
       <div className="bot-dialog-head">
         <BotAvatar bot={bot} size={28} />
         <span className="bot-dialog-title">{synth ? 'Tổng hợp — Muse kết luận' : `[Vòng ${round} — ${bot.name}]`}</span>
+        <Badge cell={cell} />
         <div className="more-menu">
           <button type="button" className="more-btn" onClick={() => setShowMore((v) => !v)} title="Thao tác ít dùng">⋯ Khác</button>
           {showMore && (

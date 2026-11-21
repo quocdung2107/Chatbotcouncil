@@ -10,11 +10,14 @@ export const ROUND_NAMES = {
   3: 'Mỗi bot sửa lại bài của mình',
 };
 
-// Thanh tien do tren dau man hinh: 3 vong tranh luan + buoc tong hop cuoi
-// o tab Muse. Duoi MOI giai doan co cac cham trang thai nho cua tung bot
-// (Badge thong nhat) de nhin 1 cai la biet bot nao xong/cho/loi o vong do.
+// Thanh tien do: 3 vong tranh luan + buoc tong hop cuoi o tab Muse.
+// Bo cuc 3 cot: nam o muc "Tong quan" tren COT TRAI voi prop `vertical`
+// (cac giai doan xep doc cho vua cot 300px). Duoi MOI giai doan co cac cham
+// trang thai nho cua tung bot (Badge thong nhat) de nhin 1 cai la biet bot
+// nao xong/cho/loi o vong do.
 // Che do nhanh (opt-in): chi 1 luot noi tiep roi sang tong hop.
-export default function RoundStepper({ round, savedCounts, phase, synthesisSaved, mode, answers, synthesis }) {
+export default function RoundStepper({ round, savedCounts, phase, synthesisSaved, mode, answers, synthesis, vertical }) {
+  const stepperCls = `stepper${vertical ? ' vertical' : ''}`;
   const synthCls = phase === 'done' ? 'done' : phase === 'synthesis' ? 'current' : 'todo';
   const dotsFor = (r) => (
     <span className="step-dots">
@@ -33,7 +36,7 @@ export default function RoundStepper({ round, savedCounts, phase, synthesisSaved
   if (mode === 'fast') {
     const cls = phase === 'done' || phase === 'synthesis' ? 'done' : 'current';
     return (
-      <div className="stepper">
+      <div className={stepperCls}>
         <div className={`step step-${cls}`}>
           <span className="step-no">1 lượt nối tiếp</span>
           <span className="step-name">Bot sau đọc bài bot trước, bổ sung/sửa</span>
@@ -50,7 +53,7 @@ export default function RoundStepper({ round, savedCounts, phase, synthesisSaved
     );
   }
   return (
-    <div className="stepper">
+    <div className={stepperCls}>
       {[1, 2, 3].map((r) => {
         const cls = phase === 'done' || phase === 'synthesis' || r < round ? 'done' : r === round ? 'current' : 'todo';
         return (

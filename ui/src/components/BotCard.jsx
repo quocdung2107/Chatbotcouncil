@@ -16,11 +16,12 @@ export function BotAvatar({ bot, size = 34 }) {
   );
 }
 
-// THE BOT GON (ban lam lai UI): cao ~40px, xep doc co dinh o tren tab Thao
-// tac — avatar + ten + Badge trang thai thong nhat. The da Luu thu gon
-// (~28px) de tiet kiem cho cho vung thao tac ghim ben duoi. Bam vao the chi
-// CHON bot cho vung thao tac ghim (khong con mo dialog bung xuong day noi
-// dung nua). Keo-tha file dap an len the van dung duoc nhu cu.
+// THE BOT GON (ban lam lai UI): cao ~40px, xep doc co dinh o COT TRAI
+// (muc Tong quan) — avatar + ten + Badge trang thai thong nhat. The da Luu
+// thu gon (~28px) de tiet kiem cho. Bam vao the chi CHON bot: trang web o
+// giua chuyen sang tab cua bot va bang thao tac o COT PHAI hien thao tac
+// cua bot do (the chi la noi chon/xem trang thai, nut bam nam ben phai).
+// Keo-tha file dap an len the van dung duoc nhu cu.
 export default function BotCard({ bot, cell, isActive, onSelect, onDropFile }) {
   const [dragOver, setDragOver] = useState(false);
   const saved = cell.status === STATUS.saved;
@@ -36,7 +37,7 @@ export default function BotCard({ bot, cell, isActive, onSelect, onDropFile }) {
         const file = e.dataTransfer?.files?.[0];
         if (file) onDropFile(bot.id, file);
       }}
-      title={onDropFile ? `Bấm để chọn ${bot.name} trong vùng thao tác bên dưới. Kéo-thả file .txt/.md/.json lên thẻ để lưu làm đáp án của ${bot.name} ở vòng hiện tại.` : `Bấm để chọn ${bot.name} trong vùng thao tác bên dưới.`}
+      title={onDropFile ? `Bấm để chọn ${bot.name} — thao tác của bot hiện ở bảng bên phải. Kéo-thả file .txt/.md/.json lên thẻ để lưu làm đáp án của ${bot.name} ở vòng hiện tại.` : `Bấm để chọn ${bot.name} — thao tác của bot hiện ở bảng bên phải.`}
     >
       <div className="bot-card-head">
         <BotAvatar bot={bot} size={saved ? 22 : 26} />
