@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const { createFsApi } = require('./fsApi');
 const { createGeminiApi } = require('./geminiApi');
-const { extractFromView } = require('./answerExtract');
+const { extractFromView, scanCandidatesInView, startPickInView, pollPickInView, fillComposerInView } = require('./answerExtract');
 
 const BOTS = [
   { id: 'chatgpt', url: 'https://chatgpt.com/' },
@@ -160,10 +160,37 @@ ipcMain.handle('views:hide', () => { hideAllViews(); return true; });
 // Lay dap an cuoi cung cua chatbot ngay trong tab cua no (nut 1 cham o the
 // bot) — chi doc khi nguoi dung bam nut, ket qua ve o nhap de duyet roi moi
 // luu. Xem electron/answerExtract.js.
-ipcMain.handle('views:extract-answer', async (_e, botId) => {
+ipcMain.handle('views:extract-answer', async (_e, botId, customSelector) => {
   const view = views.get(botId);
   if (!view) return { ok: false, error: 'Tab này chưa được mở trong app — hãy bấm vào thẻ của bot để mở tab trước, đợi bot trả lời xong rồi bấm lại.' };
-  return extractFromView(view, botId);
+  return extractFromView(view, botId, customSelector);
+});
+// Quet cac vung noi dung ung vien ngay trong trang that (cho panel cai dat
+// lay dap an): nguoi dung xem truoc noi dung tung vung roi chon 1 vung lam
+// selector cua bot do, thay cho selector mac dinh.
+ipcMain.handle('views:scan-candidates', async (_e, botId) => {
+  const view = views.get(botId);
+  if (!view) return { ok: false, error: 'Tab này chưa được mở trong app — hãy bấm vào thẻ của bot để mở tab trước rồi bấm lại.' };
+  return scanCandidatesInView(view);
+});
+// Che do chon vung truc tiep: bat pick trong trang, renderer hoi ket qua
+// bang poll cho den khi nguoi dung bam vao 1 khoi (hoac ESC huy).
+ipcMain.handle('views:start-pick', async (_e, botId) => {
+  const view = views.get(botId);
+  if (!view) return { ok: false, error: 'Tab này chưa được mở trong app.' };
+  return startPickInView(view);
+});
+ipcMain.handle('views:poll-pick', async (_e, botId) => {
+  const view = views.get(botId);
+  if (!view) return { done: true, ok: false, error: 'Tab này chưa được mở.' };
+  return pollPickInView(view);
+});
+// Dan prompt thang vao o nhap cua chatbot trong tab (nguoi dung doc lai
+// trong trang roi TU bam Gui — app khong bam Gui ho).
+ipcMain.handle('views:fill-composer', async (_e, botId, text) => {
+  const view = views.get(botId);
+  if (!view) return { ok: false, error: 'Tab này chưa được mở trong app — hãy bấm vào thẻ của bot để mở tab trước rồi bấm lại.' };
+  return fillComposerInView(view, botId, text);
 });
 ipcMain.handle('views:reload', (_e, botId) => {
   const bot = VIEWS.find((b) => b.id === botId);

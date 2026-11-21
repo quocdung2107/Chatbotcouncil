@@ -1,20 +1,22 @@
-// Trich xuat DAP AN CUOI CUNG cua chatbot ngay trong tab cua no (nut 1 cham
-// "Lay dap an tu tab") — thay cho thao tac boi den + Ctrl+C bang tay.
+// Trich xuat DAP AN cua chatbot ngay trong tab cua no — ban v2.
 //
-// Cach lam: chay mot doan JavaScript doc DOM trong chinh trang chatbot
-// (webContents.executeJavaScript) khi NGUOI DUNG BAM NUT. Chi doc cau tra loi
-// assistant gan nhat, dua ve o nhap de nguoi dung DOC LAI roi moi bam Luu —
-// app khong tu gui prompt, khong tu luu, khong cao hang loat. Neu trang doi
-// giao dien lam trich xuat that bai, app bao loi ro rang va nguoi dung dung
-// lai nut "Dan tu clipboard" nhu cu.
+// Ban v1 that bai voi Copilot va mot so trang ChatGPT vi 2 ly do:
+//  1) Copilot dung SHADOW DOM — document.querySelectorAll thong thuong khong
+//     nhin thay noi dung ben trong. Ban v2 duyet ca shadow root (deep query)
+//     va tinh "deep text" gom ca text trong shadow.
+//  2) Selector doan san co the khong khop trang that cua tung tai khoan.
+//     Ban v2 cho phep NGUOI DUNG tu chon vung dap an ngay tren trang that
+//     (che do pick), hoac quet danh sach vung ung vien tu trang that, hoac
+//     tu go selector — selector tuy chinh nay THAY/uu tien hon mac dinh va
+//     luu ngay tren may nguoi dung (localStorage phia renderer).
 //
-// Moi site co nhieu selector du phong (theo thu tu uu tien); cuoi cung con
-// mot lop fallback chung cho moi bot. Selector co the can cap nhat khi cac
-// site doi DOM — loi trich xuat se ghi ro bot nao de bao lai cho de sua.
+// Nguyen tac giu nguyen: chi DOC khi nguoi dung bam nut; ket qua ve o nhap
+// de duyet roi moi Luu; app khong tu gui, khong tu luu.
 
 const SITE_SELECTORS = {
   chatgpt: [
     '[data-message-author-role="assistant"] .markdown',
+    'article [data-message-author-role="assistant"]',
     '[data-message-author-role="assistant"]',
     '.agent-turn .markdown',
   ],
@@ -34,8 +36,9 @@ const SITE_SELECTORS = {
   ],
   copilot: [
     '[data-testid="ai-message"]',
-    '[data-content="ai-message"]',
+    'cib-message-group[type="response"] cib-message',
     'cib-message[type="ai"]',
+    '[data-content="ai-message"]',
     '.ai-message',
   ],
   muse: [
@@ -50,47 +53,367 @@ const GENERIC_SELECTORS = [
   '[data-testid*="assistant" i]',
   '[data-testid*="model-response" i]',
   '[class*="assistant-message" i]',
+  '[class*="markdown" i]',
 ];
 
-function buildExtractScript(botId) {
-  const selectors = [...(SITE_SELECTORS[botId] || []), ...GENERIC_SELECTORS];
-  return `(() => {
-  const SELECTORS = ${JSON.stringify(selectors)};
-  const clean = (t) => String(t || '')
-    .replace(/\\u00a0/g, ' ')
-    .replace(/\\n{3,}/g, '\\n\\n')
-    .trim();
-  for (const sel of SELECTORS) {
+// Cac ham chay BEN TRONG trang chatbot (noi dung chuoi duoc noi vao moi
+// script). Gom: duyet shadow root, deep text, sinh selector tu 1 element.
+const PAGE_HELPERS = `
+function collectRoots(start) {
+  const roots = []; const seen = new Set();
+  const stack = [start || document];
+  while (stack.length) {
+    const r = stack.pop();
+    if (!r || seen.has(r)) continue;
+    seen.add(r); roots.push(r);
     let els = [];
-    try { els = Array.from(document.querySelectorAll(sel)); } catch (_) { continue; }
-    els = els.filter((e) => {
-      const r = e.getClientRects();
-      return r && r.length > 0;
-    });
-    for (let i = els.length - 1; i >= 0; i--) {
-      const text = clean(els[i].innerText);
-      if (text.length >= 20) return { ok: true, text, selector: sel };
-    }
+    try { els = r.querySelectorAll('*'); } catch (_) { continue; }
+    for (const el of els) { if (el.shadowRoot) stack.push(el.shadowRoot); }
   }
+  return roots;
+}
+function deepQueryAll(sel) {
+  const out = []; const seenEl = new Set();
+  for (const root of collectRoots(document)) {
+    let els = [];
+    try { els = root.querySelectorAll(sel); } catch (_) { continue; }
+    for (const el of els) { if (!seenEl.has(el)) { seenEl.add(el); out.push(el); } }
+  }
+  return out;
+}
+function deepText(node) {
+  if (!node) return '';
+  if (node.nodeType === 3) return node.nodeValue || '';
+  let t = '';
+  const kids = node.childNodes ? Array.from(node.childNodes) : [];
+  for (const k of kids) t += deepText(k) + '\\n';
+  if (node.shadowRoot) t += deepText(node.shadowRoot);
+  return t;
+}
+function cleanText(t) {
+  return String(t || '').replace(/\\u00a0/g, ' ').replace(/\\n{3,}/g, '\\n\\n').trim();
+}
+function textOf(el) {
+  const it = cleanText(el.innerText || '');
+  if (it.length >= 20) return it;
+  return cleanText(deepText(el));
+}
+function isVisible(el) {
+  try { const r = el.getClientRects(); return !!(r && r.length > 0); } catch (_) { return false; }
+}
+function segmentOf(el) {
+  const tag = el.tagName.toLowerCase();
+  if (el.id) { try { return '#' + CSS.escape(el.id); } catch (_) { return '#' + el.id; } }
+  const dt = el.getAttribute && el.getAttribute('data-testid');
+  if (dt) return tag + '[data-testid="' + dt + '"]';
+  const role = el.getAttribute && el.getAttribute('data-message-author-role');
+  if (role) return tag + '[data-message-author-role="' + role + '"]';
+  let cls = [];
+  if (typeof el.className === 'string') {
+    cls = el.className.split(/\\s+/).filter((c) => c && c.length <= 32 && !/\\d{4,}/.test(c)).slice(0, 2);
+  }
+  let seg = tag + (cls.length ? '.' + cls.join('.') : '');
+  const parent = el.parentNode;
+  if (parent && parent.children) {
+    const sameTag = Array.from(parent.children).filter((c) => c.tagName === el.tagName);
+    if (sameTag.length > 1) seg += ':nth-of-type(' + (sameTag.indexOf(el) + 1) + ')';
+  }
+  return seg;
+}
+function cssPath(el) {
+  const parts = []; let node = el; let guard = 0;
+  while (node && node.nodeType === 1 && guard < 14) {
+    guard += 1;
+    parts.unshift(segmentOf(node));
+    if (node.id) break;
+    let parent = node.parentNode;
+    if (!parent) {
+      const root = node.getRootNode && node.getRootNode();
+      if (root && root.host) { parts.unshift('>>>'); node = root.host; continue; }
+      break;
+    }
+    if (parent.nodeType === 11) { parts.unshift('>>>'); node = parent.host; continue; }
+    node = parent;
+  }
+  let out = '';
+  for (const p of parts) {
+    if (p === '>>>') out += ' >>> ';
+    else out += (out && !out.endsWith('>>> ') ? ' > ' : '') + p;
+  }
+  return out;
+}
+function queryCustom(sel) {
+  const chunks = String(sel).split('>>>').map((s) => s.trim()).filter(Boolean);
+  if (!chunks.length) return [];
+  let current = deepQueryAll(chunks[0]);
+  for (let i = 1; i < chunks.length; i++) {
+    const next = []; const seenEl = new Set();
+    for (const el of current) {
+      if (!el.shadowRoot) continue;
+      for (const root of collectRoots(el.shadowRoot)) {
+        let els = [];
+        try { els = root.querySelectorAll(chunks[i]); } catch (_) { continue; }
+        for (const e of els) { if (!seenEl.has(e)) { seenEl.add(e); next.push(e); } }
+      }
+    }
+    current = next;
+  }
+  return current;
+}
+function queryAny(sel) {
+  return String(sel).includes('>>>') ? queryCustom(sel) : deepQueryAll(sel);
+}
+`;
+
+function buildExtractScript(botId, customSelector) {
+  const selectors = [];
+  if (customSelector && String(customSelector).trim()) selectors.push(String(customSelector).trim());
+  selectors.push(...(SITE_SELECTORS[botId] || []), ...GENERIC_SELECTORS);
+  return `(() => {
+${PAGE_HELPERS}
+  const SELECTORS = ${JSON.stringify(selectors)};
+  const pickFrom = (els) => {
+    for (const needVisible of [true, false]) {
+      for (let i = els.length - 1; i >= 0; i--) {
+        if (needVisible && !isVisible(els[i])) continue;
+        const text = textOf(els[i]);
+        if (text.length >= 20) return text;
+      }
+    }
+    return '';
+  };
+  for (const sel of SELECTORS) {
+    const text = pickFrom(queryAny(sel));
+    if (text) return { ok: true, text, selector: sel };
+  }
+  // Lop cuoi: quet thong minh cac khoi giong "tin nhan/dap an" (gom ca trong
+  // shadow DOM) va lay khoi cuoi cung du dai — nguoi dung van duyet truoc
+  // khi Luu nen sai sot o lop nay se bi phat hien o o nhap.
+  const BROAD = 'article, model-response, cib-message, cib-message-group, [data-testid], [data-message-author-role], [class*="message" i], [class*="response" i], [class*="markdown" i]';
+  const seenText = new Set(); const cands = [];
+  for (const el of deepQueryAll(BROAD)) {
+    const tag = el.tagName.toLowerCase();
+    if (['nav', 'header', 'footer', 'form', 'textarea', 'button'].includes(tag)) continue;
+    const text = textOf(el);
+    if (text.length < 60 || text.length > 40000) continue;
+    const key = text.slice(0, 200);
+    if (seenText.has(key)) continue;
+    seenText.add(key);
+    cands.push({ el, text });
+  }
+  const minimal = cands.filter((c) => !cands.some((o) => o !== c && o.text.length < c.text.length && c.text.includes(o.text)));
+  const last = minimal[minimal.length - 1];
+  if (last) return { ok: true, text: last.text, selector: 'quet-thong-minh' };
   return { ok: false, error: 'not-found' };
 })()`;
 }
 
-// view: WebContentsView (hoac doi tuong co webContents.executeJavaScript khi test)
-async function extractFromView(view, botId) {
-  if (!view || !view.webContents || typeof view.webContents.executeJavaScript !== 'function') {
-    return { ok: false, error: 'Tab này chưa được mở trong app — hãy bấm vào thẻ của bot để mở tab trước, đợi bot trả lời xong rồi bấm lại.' };
+function buildScanScript() {
+  return `(() => {
+${PAGE_HELPERS}
+  const BROAD = 'article, model-response, cib-message, cib-message-group, [data-testid], [data-message-author-role], [class*="message" i], [class*="response" i], [class*="markdown" i], [class*="answer" i]';
+  const seenText = new Set(); const out = [];
+  for (const el of deepQueryAll(BROAD)) {
+    const tag = el.tagName.toLowerCase();
+    if (['nav', 'header', 'footer', 'form', 'textarea', 'button', 'input'].includes(tag)) continue;
+    const text = textOf(el);
+    if (text.length < 60 || text.length > 40000) continue;
+    const key = text.slice(0, 200);
+    if (seenText.has(key)) continue;
+    seenText.add(key);
+    out.push({ selector: cssPath(el), length: text.length, preview: text.replace(/\\s+/g, ' ').slice(0, 160) });
+    if (out.length >= 60) break;
   }
-  let result;
+  return { ok: true, candidates: out.slice(-15) };
+})()`;
+}
+
+function buildPickStartScript() {
+  return `(() => {
+${PAGE_HELPERS}
+  if (window.__councilPickCleanup) { try { window.__councilPickCleanup(); } catch (_) {} }
+  window.__councilPickResult = null;
+  let lastEl = null; let prevOutline = '';
+  const banner = document.createElement('div');
+  banner.textContent = 'CHE DO CHON VUNG DAP AN: di chuot den khoi dap an cua bot roi BAM vao no. Bam ESC de huy.';
+  banner.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#111827;color:#fff;padding:9px 16px;border-radius:9px;font:14px/1.4 sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.35);pointer-events:none;max-width:90vw;text-align:center';
+  document.documentElement.appendChild(banner);
+  function cleanup() {
+    document.removeEventListener('mouseover', onMove, true);
+    document.removeEventListener('click', onClick, true);
+    document.removeEventListener('keydown', onKey, true);
+    if (lastEl) { try { lastEl.style.outline = prevOutline; } catch (_) {} }
+    try { banner.remove(); } catch (_) {}
+    window.__councilPickCleanup = null;
+  }
+  function realTarget(e) {
+    if (e.composedPath && e.composedPath().length) return e.composedPath()[0];
+    return e.target;
+  }
+  function onMove(e) {
+    const el = realTarget(e);
+    if (!el || el.nodeType !== 1 || el === banner) return;
+    if (lastEl && lastEl !== el) { try { lastEl.style.outline = prevOutline; } catch (_) {} }
+    if (lastEl !== el) { prevOutline = el.style.outline || ''; }
+    lastEl = el;
+    try { el.style.outline = '3px solid #f59e0b'; el.style.outlineOffset = '1px'; } catch (_) {}
+  }
+  function onClick(e) {
+    const el = realTarget(e);
+    if (!el || el.nodeType !== 1 || el === banner) return;
+    e.preventDefault(); e.stopPropagation();
+    const text = textOf(el);
+    window.__councilPickResult = { selector: cssPath(el), length: text.length, preview: text.replace(/\\s+/g, ' ').slice(0, 200), textSample: text.slice(0, 300) };
+    cleanup();
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') { window.__councilPickResult = { cancelled: true }; cleanup(); }
+  }
+  document.addEventListener('mouseover', onMove, true);
+  document.addEventListener('click', onClick, true);
+  document.addEventListener('keydown', onKey, true);
+  window.__councilPickCleanup = cleanup;
+  setTimeout(() => { if (window.__councilPickCleanup) cleanup(); }, 180000);
+  return { ok: true };
+})()`;
+}
+
+const PICK_POLL_SCRIPT = `(() => {
+  const r = window.__councilPickResult;
+  if (r) window.__councilPickResult = null;
+  return r || null;
+})()`;
+
+const COMPOSER_SELECTORS = {
+  chatgpt: ['#prompt-textarea', 'div#prompt-textarea[contenteditable="true"]', 'textarea[data-id="root"]'],
+  claude: ['[data-testid="chat-input"][contenteditable="true"]', '.ProseMirror[contenteditable="true"]', 'div[contenteditable="true"]'],
+  gemini: ['rich-textarea [contenteditable="true"]', '.ql-editor[contenteditable="true"]', 'textarea'],
+  copilot: ['textarea#userInput', 'textarea[name="userInput"]', '#userInput', 'textarea'],
+  muse: [],
+};
+
+function buildFillComposerScript(botId, text) {
+  const selectors = [...(COMPOSER_SELECTORS[botId] || [])];
+  return `(() => {
+${PAGE_HELPERS}
+  const TEXT = ${JSON.stringify(text)};
+  const SPECIFIC = ${JSON.stringify(selectors)};
+  let el = null; let via = '';
+  for (const sel of SPECIFIC) {
+    const els = queryAny(sel).filter((e) => isVisible(e) && !e.disabled && !e.readOnly);
+    if (els.length) { el = els[els.length - 1]; via = sel; break; }
+  }
+  if (!el) {
+    const all = deepQueryAll('textarea, [contenteditable="true"]').filter((e) => isVisible(e) && !e.disabled && !e.readOnly && e.getAttribute('aria-hidden') !== 'true');
+    let best = null; let bestScore = -1;
+    for (const cand of all) {
+      const hints = [cand.getAttribute('placeholder') || '', cand.getAttribute('aria-label') || '', cand.id || '', cand.getAttribute('name') || ''].join(' ');
+      let score = 0;
+      if (/message|chat|ask|prompt|reply|hỏi|nhập|tin nhắn/i.test(hints)) score += 5;
+      try { const r = cand.getBoundingClientRect(); if (r.top > window.innerHeight * 0.45) score += 2; score += Math.min(3, (r.width * r.height) / 60000); } catch (_) {}
+      if (score > bestScore) { bestScore = score; best = cand; }
+    }
+    el = best; via = 'o-nhap-chung';
+  }
+  if (!el) return { ok: false, error: 'not-found' };
+  try { el.focus(); } catch (_) {}
+  const isTextControl = el.tagName === 'TEXTAREA' || el.tagName === 'INPUT';
+  if (isTextControl) {
+    const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+    setter.call(el, TEXT);
+    el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+    return { ok: true, via };
+  }
+  // contenteditable: uu tien execCommand insertText (kich hoat dung su kien
+  // cua ProseMirror/Lexical), khong duoc moi ghi thang + phat su kien input.
+  let done = false;
   try {
-    result = await view.webContents.executeJavaScript(buildExtractScript(botId), true);
-  } catch (err) {
-    return { ok: false, error: `Không đọc được nội dung trong tab: ${String(err && err.message ? err.message : err)}` };
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    sel.removeAllRanges(); sel.addRange(range);
+    done = document.execCommand('insertText', false, TEXT);
+  } catch (_) { done = false; }
+  if (!done || !textOf(el).includes(TEXT.slice(0, 24))) {
+    try {
+      el.textContent = '';
+      TEXT.split('\\n').forEach((line, i) => {
+        if (i > 0) el.appendChild(document.createElement('br'));
+        el.appendChild(document.createTextNode(line));
+      });
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: TEXT }));
+    } catch (_) {}
   }
+  return { ok: true, via };
+})()`;
+}
+
+function noView() {
+  return { ok: false, error: 'Tab này chưa được mở trong app — hãy bấm vào thẻ của bot để mở tab trước rồi bấm lại.' };
+}
+
+async function runInView(view, script) {
+  if (!view || !view.webContents || typeof view.webContents.executeJavaScript !== 'function') return { missing: true };
+  try {
+    return { value: await view.webContents.executeJavaScript(script, true) };
+  } catch (err) {
+    return { error: `Không chạy được trong tab: ${String(err && err.message ? err.message : err)}` };
+  }
+}
+
+async function extractFromView(view, botId, customSelector) {
+  if (!view) return noView();
+  const r = await runInView(view, buildExtractScript(botId, customSelector));
+  if (r.missing) return noView();
+  if (r.error) return { ok: false, error: r.error };
+  const result = r.value;
   if (!result || !result.ok || !String(result.text || '').trim()) {
-    return { ok: false, error: 'Không tìm thấy khối đáp án của bot trong tab (trang có thể đã đổi giao diện, hoặc bot chưa trả lời xong). Hãy đợi bot trả lời xong, hoặc dùng nút "Dán từ clipboard" như cách cũ rồi báo lại bot nào bị lỗi để sửa bộ trích xuất.' };
+    return { ok: false, error: 'Không tìm thấy khối đáp án của bot trong tab (bot chưa trả lời xong, hoặc trang đã đổi giao diện). Hãy mở dialog của bot, vào "Cài đặt lấy đáp án" để QUÉT các vùng ứng viên hoặc CHỌN VÙNG trực tiếp trên trang thật — selector bạn chọn sẽ thay mặc định. Cách cũ "Dán từ clipboard" vẫn dùng được.' };
   }
   return { ok: true, text: String(result.text).trim(), selector: result.selector || '' };
 }
 
-module.exports = { buildExtractScript, extractFromView, SITE_SELECTORS };
+async function scanCandidatesInView(view) {
+  if (!view) return noView();
+  const r = await runInView(view, buildScanScript());
+  if (r.missing) return noView();
+  if (r.error) return { ok: false, error: r.error };
+  const candidates = (r.value && r.value.candidates) || [];
+  if (!candidates.length) return { ok: false, error: 'Không quét được vùng nào có nội dung đủ dài trong tab — hãy đợi bot trả lời xong (có đáp án hiện trên trang) rồi quét lại.' };
+  return { ok: true, candidates };
+}
+
+async function startPickInView(view) {
+  if (!view) return noView();
+  const r = await runInView(view, buildPickStartScript());
+  if (r.missing) return noView();
+  if (r.error) return { ok: false, error: r.error };
+  return { ok: true };
+}
+
+async function pollPickInView(view) {
+  if (!view) return { done: true, ok: false, error: 'Tab chưa được mở.' };
+  const r = await runInView(view, PICK_POLL_SCRIPT);
+  if (r.missing || r.error) return { done: true, ok: false, error: r.error || 'Tab chưa được mở.' };
+  if (!r.value) return { done: false };
+  if (r.value.cancelled) return { done: true, ok: false, error: 'Bạn đã hủy chọn vùng (ESC).' };
+  return { done: true, ok: true, selector: r.value.selector, length: r.value.length, preview: r.value.preview };
+}
+
+async function fillComposerInView(view, botId, text) {
+  if (!view) return noView();
+  if (!String(text || '').trim()) return { ok: false, error: 'Prompt đang trống.' };
+  const r = await runInView(view, buildFillComposerScript(botId, String(text)));
+  if (r.missing) return noView();
+  if (r.error) return { ok: false, error: r.error };
+  if (!r.value || !r.value.ok) return { ok: false, error: 'Không tìm thấy ô nhập của chatbot trong tab (trang có thể chưa tải xong hoặc đã đổi giao diện). Hãy đợi trang tải xong rồi bấm lại, hoặc dùng nút Copy prompt + dán tay (Ctrl+V) như trước.' };
+  return { ok: true, via: r.value.via };
+}
+
+module.exports = {
+  buildExtractScript, buildScanScript, buildPickStartScript, buildFillComposerScript,
+  extractFromView, scanCandidatesInView, startPickInView, pollPickInView, fillComposerInView,
+  SITE_SELECTORS,
+};

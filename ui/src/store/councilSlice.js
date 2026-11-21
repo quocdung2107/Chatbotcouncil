@@ -51,6 +51,10 @@ const initialState = {
   // Dieu phoi Gemini API (API key KHONG luu o day — key chi o localStorage
   // rieng cua panel, khong vao phien.json): ket qua dieu phoi cua phien.
   coordinator: { claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '' },
+  // Cai dat lay dap an nang cao (chi la trang thai giao dien tam thoi):
+  // candidates[botId] = danh sach vung ung vien quet tu trang that,
+  // picking = botId dang o che do chon vung truc tiep tren trang.
+  extractUi: { candidates: {}, picking: '' },
   files: emptyFiles(),
   log: [],
 };
@@ -192,6 +196,27 @@ const councilSlice = createSlice({
       state.coordinator.busy = '';
       state.log.unshift({ time: timeNow(), text: `Gemini API kết nối THÀNH CÔNG bằng model ${action.payload} — key dùng được, vai trò điều phối đã sẵn sàng.` });
     },
+    // ---- Cai dat lay dap an nang cao ----
+    candidatesReady(state, action) {
+      const { botId, candidates } = action.payload;
+      state.extractUi.candidates[botId] = candidates;
+      state.log.unshift({ time: timeNow(), text: `Đã quét trang của ${botId}: tìm thấy ${candidates.length} vùng nội dung ứng viên — mở mục "Cài đặt lấy đáp án" trong dialog của bot để xem trước và chọn vùng đúng.` });
+    },
+    pickStarted(state, action) {
+      state.extractUi.picking = action.payload;
+      state.log.unshift({ time: timeNow(), text: `Đã bật chế độ CHỌN VÙNG trên tab ${action.payload}: hãy nhìn sang tab chatbot, di chuột tới khối ĐÁP ÁN của bot (khối sẽ có viền cam) rồi BẤM vào nó. Bấm ESC trong trang để hủy.` });
+    },
+    pickFinished(state, action) {
+      state.extractUi.picking = '';
+      if (action.payload) state.log.unshift({ time: timeNow(), text: action.payload });
+    },
+    selectorApplied(state, action) {
+      const { botId, selector, source } = action.payload;
+      state.log.unshift({ time: timeNow(), text: `Đã đặt selector lấy đáp án cho ${botId} (${source}): ${selector} — từ giờ nút "Lấy đáp án từ tab" của bot này dùng selector này thay mặc định.` });
+    },
+    selectorCleared(state, action) {
+      state.log.unshift({ time: timeNow(), text: `Đã xóa selector tùy chỉnh của ${action.payload} — quay về selector mặc định.` });
+    },
     // ---- Workflow file (goi day du) ----
     filesStateLoaded(state, action) {
       const { workDir, recentFiles, recentSessions, history } = action.payload || {};
@@ -260,6 +285,12 @@ const councilSlice = createSlice({
     copyPromptRequested() {},
     pasteAnswerRequested() {},
     fetchAnswerRequested() {},
+    fillComposerRequested() {},
+    fillSynthesisComposerRequested() {},
+    scanCandidatesRequested() {},
+    startPickRequested() {},
+    applySelectorRequested() {},
+    clearSelectorRequested() {},
     exportRequested() {},
     copySynthesisPromptRequested() {},
     pasteSynthesisAnswerRequested() {},
@@ -288,7 +319,10 @@ export const {
   geminiBusy, geminiFailed, claimCardsReady, formReportReady, synthBriefReady, geminiTestOk,
   filesStateLoaded, workDirChanged, sessionFolderReady, sessionFilesUpdated,
   recentFilesUpdated, historyUpdated, contextLoaded, contextCleared, sessionRestored,
+  candidatesReady, pickStarted, pickFinished, selectorApplied, selectorCleared,
   copyPromptRequested, pasteAnswerRequested, fetchAnswerRequested, exportRequested,
+  fillComposerRequested, fillSynthesisComposerRequested,
+  scanCandidatesRequested, startPickRequested, applySelectorRequested, clearSelectorRequested,
   copySynthesisPromptRequested, pasteSynthesisAnswerRequested, fetchSynthesisAnswerRequested,
   filesInitRequested, chooseWorkDirRequested, loadContextRequested,
   restoreSessionRequested, openSessionRequested, dropAnswerFileRequested,

@@ -10,11 +10,12 @@ việc gõ lệnh trong Terminal của bản `hoi_dong.py`: mọi thao tác copy
   thẳng vào app bằng `WebContentsView` của Electron — xem từng tab một, hoặc chuyển
   sang **Lưới 4 ô** (2×2) để thấy cả 4 cùng lúc. Mỗi chatbot có vùng lưu đăng nhập
   riêng (`persist:council-<bot>`), đăng nhập một lần, lần sau mở app vẫn còn.
-- **Cột thao tác bên phải**: mỗi bot một thẻ trạng thái
-  (Chưa làm → Đã copy prompt → Đã gửi → Đã lưu đáp án) và đúng 3 nút theo thứ tự:
-  1. **Copy prompt vòng này** — app tự soạn prompt đúng vai/form của vòng rồi đưa vào clipboard.
-  2. **Tôi đã dán + bấm Gửi** — bạn tự dán (Ctrl+V) và bấm Gửi trong tab chatbot, xong bấm nút này.
-  3. **⬇ Lấy đáp án từ tab** — bấm 1 nút, app tự đọc khối đáp án mới nhất ngay trong tab chatbot và điền vào ô đáp án (không cần bôi đen + copy nữa). Bạn **đọc lại/sửa trong ô** rồi bấm **Lưu đáp án** mới tính là lưu. Nếu nút này báo không đọc được (trang chatbot đổi giao diện), dùng nút **Dán từ clipboard (dự phòng)**: copy đáp án trong tab như cách cũ rồi bấm — đáp án cũng về ô để bạn duyệt trước khi Lưu. Nút lấy từ tab chỉ có ở bản Electron; bản trình duyệt dùng nút dán.
+- **Cột thao tác bên phải**: mỗi bot một thẻ tab có **avatar riêng** (vòng tròn gradient + chữ tắt: GPT / Cl / Ge / Co / Mu) và nhãn trạng thái. **Bấm vào thẻ để mở DIALOG thao tác** của bot đó ngay dưới thẻ, gồm:
+  1. **1a · Copy prompt vòng này** — app tự soạn prompt đúng vai/form của vòng rồi đưa vào clipboard (bạn tự dán).
+  2. **1b · Dán prompt vào ô nhập của chatbot** — app tự điền prompt vào đúng ô nhập trong tab; bạn **đọc lại ngay trong trang rồi TỰ bấm Gửi** (app không bấm Gửi hộ — giữ ranh giới bán tự động).
+  3. **2 · Tôi đã bấm Gửi trong trang** — đánh dấu đã gửi.
+  4. **3 · ⬇ Lấy đáp án từ tab** — app đọc khối đáp án mới nhất ngay trong tab (bản v2 **xuyên được Shadow DOM** — trường hợp của Copilot — và có lớp quét thông minh dự phòng) và điền vào ô đáp án. Bạn **đọc lại/sửa trong ô** rồi bấm **Lưu đáp án** mới tính là lưu. Dự phòng: nút **Dán từ clipboard** như cách cũ.
+  5. **Cài đặt lấy đáp án** (trong dialog, chỉ bản Electron): nếu một trang vẫn không lấy được, bạn tự chọn vùng đáp án từ **chính trang thật** bằng 1 trong 3 cách — **Quét các vùng ứng viên từ trang** (app liệt kê các khối nội dung kèm đoạn xem trước, bấm vào khối đúng để dùng), **Chọn vùng trực tiếp trên trang** (sang tab, di chuột tới khối đáp án có viền cam rồi bấm vào nó), hoặc **tự gõ selector**. Selector bạn chọn **thay mặc định** cho bot đó và lưu trên máy của bạn (localStorage), có nút **Khôi phục mặc định** và **Thử lấy đáp án ngay**.
 - **Thanh tiến độ trên đầu**: Vòng 1 đề xuất mù → Vòng 2 phản biện chéo ẩn danh →
   Vòng 3 tác giả sửa bài → **Tổng hợp**. Đủ 4/4 đáp án của một vòng, app tự chuyển vòng.
 - **Tab Muse — Tổng hợp (bước cuối, sau vòng 3)**: một tab riêng mở

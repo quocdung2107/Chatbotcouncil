@@ -3,16 +3,31 @@ import { STATUS } from '../store/councilSlice';
 
 export const STATUS_LABEL = {
   [STATUS.idle]: 'Chưa làm',
-  [STATUS.prompt_ready]: 'Đã copy prompt',
+  [STATUS.prompt_ready]: 'Đã có prompt',
   [STATUS.sent]: 'Đã gửi — chờ đáp án',
   [STATUS.fetched]: 'Đã lấy về — chờ bạn duyệt',
   [STATUS.saved]: 'Đã lưu đáp án',
 };
 
-// The trang thai + cac nut thao tac cua 1 bot trong vong hien tai.
-// Quy trinh ban tu dong: Copy prompt -> (dan + Gui bang tay trong tab) ->
-// "Da gui" -> copy dap an trong tab -> "Dan dap an ve".
-export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent, onPaste, onFetch, onSave, onEdit, onReload, onNewSession, browserMode, synth, onDropFile }) {
+// Avatar rieng cho tung chatbot: vong tron gradient + chu viet tat, de nhin
+// vao la nhan ra ngay tab nao (thay cho cham mau don dieu truoc day).
+export function BotAvatar({ bot, size = 34 }) {
+  return (
+    <span
+      className="bot-avatar"
+      style={{ background: bot.gradient || bot.color, width: size, height: size, fontSize: Math.max(10, size * 0.34) }}
+      aria-hidden="true"
+    >
+      {bot.initials || bot.name.slice(0, 2)}
+    </span>
+  );
+}
+
+// The TAB cua 1 bot: gon (avatar + ten + trang thai). Bam vao the de chon
+// tab — DIALOG thao tac (BotDialog) se mo ngay duoi the voi day du nut:
+// dan prompt vao o nhap, lay dap an, cai dat lay dap an... Keo-tha file
+// dap an len the van dung duoc nhu cu.
+export default function BotCard({ bot, cell, isActive, onSelect, onDropFile }) {
   const [dragOver, setDragOver] = useState(false);
   return (
     <div
@@ -26,58 +41,14 @@ export default function BotCard({ bot, cell, isActive, onSelect, onCopy, onSent,
         const file = e.dataTransfer?.files?.[0];
         if (file) onDropFile(bot.id, file);
       }}
+      title={onDropFile ? `Bấm để mở dialog thao tác của ${bot.name}. Kéo-thả file .txt/.md/.json lên thẻ để lưu làm đáp án của ${bot.name} ở vòng hiện tại.` : `Bấm để mở dialog thao tác của ${bot.name}.`}
     >
       <div className="bot-card-head">
-        <span className="bot-dot" style={{ background: bot.color }} />
+        <BotAvatar bot={bot} />
         <span className="bot-name">{bot.name}</span>
         <span className={`status status-${cell.status}`}>{STATUS_LABEL[cell.status]}</span>
+        <span className="bot-chevron" aria-hidden="true">{isActive ? '▾' : '▸'}</span>
       </div>
-
-      {isActive && (
-        <div className="bot-card-body" onClick={(e) => e.stopPropagation()}>
-          {browserMode ? (
-            <div className="btn-row">
-              <a className="open-link" href={bot.url} target="_blank" rel="noreferrer">Mở tab {bot.name} ↗</a>
-            </div>
-          ) : (
-            <div className="btn-row">
-              <button type="button" onClick={onNewSession} title="Nạp lại trang gốc của chatbot để bắt đầu chat mới">↺ Session mới</button>
-              <button type="button" onClick={onReload} title="Tải lại trang chatbot">⟳ Tải lại</button>
-            </div>
-          )}
-          <div className="btn-row">
-            <button type="button" className="primary" onClick={onCopy}>{synth ? '1 · Copy prompt TỔNG HỢP' : '1 · Copy prompt vòng này'}</button>
-          </div>
-          <div className="btn-row">
-            <button type="button" onClick={onSent} disabled={cell.status === STATUS.saved}>2 · Tôi đã dán + bấm Gửi</button>
-            {browserMode ? (
-              <button type="button" className="primary" onClick={onPaste}>3 · Dán đáp án về</button>
-            ) : (
-              <button type="button" className="primary" onClick={onFetch} title="App tự đọc khối đáp án mới nhất ngay trong tab của bot và điền vào ô dưới — không cần bôi đen copy">3 · ⬇ Lấy đáp án từ tab</button>
-            )}
-          </div>
-          {!browserMode && (
-            <div className="btn-row">
-              <button type="button" onClick={onPaste} title="Cách cũ, dự phòng khi nút lấy từ tab không đọc được trang">Dán từ clipboard (dự phòng)</button>
-              {cell.status === STATUS.fetched && <span className="char-count">Đáp án đã về ô dưới — đọc lại rồi bấm Lưu.</span>}
-            </div>
-          )}
-          <textarea
-            className="answer-box"
-            placeholder={synth ? 'Kết luận tổng hợp của Muse sẽ hiện ở đây sau khi bấm "Lấy đáp án từ tab" — đọc lại, sửa nếu cần rồi mới bấm Lưu.' : 'Đáp án của bot sẽ hiện ở đây sau khi bấm "Lấy đáp án từ tab" — đọc lại, sửa nếu cần rồi mới bấm Lưu.'}
-            value={cell.answer}
-            onChange={(e) => onEdit(e.target.value)}
-            rows={7}
-          />
-          <div className="btn-row">
-            <button type="button" onClick={onSave} disabled={!cell.answer.trim()}>Lưu đáp án</button>
-            <span className="char-count">{cell.answer.length} ký tự</span>
-          </div>
-          {onDropFile && (
-            <div className="drop-hint">Kéo-thả file .txt/.md/.json lên thẻ này để lưu/xem đáp án của {bot.name} ở vòng hiện tại.</div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -3,10 +3,10 @@
 // vong 2 phan bien cheo an danh, vong 3 tac gia tu sua bai.
 
 export const BOTS = [
-  { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com/', color: '#10a37f' },
-  { id: 'claude', name: 'Claude', url: 'https://claude.ai/', color: '#d97757' },
-  { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com/app', color: '#1c7dff' },
-  { id: 'copilot', name: 'Copilot', url: 'https://copilot.microsoft.com/', color: '#7b61ff' },
+  { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com/', color: '#10a37f', initials: 'GPT', gradient: 'linear-gradient(135deg,#10a37f,#0b7a5f)' },
+  { id: 'claude', name: 'Claude', url: 'https://claude.ai/', color: '#d97757', initials: 'Cl', gradient: 'linear-gradient(135deg,#e08a67,#c65a36)' },
+  { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com/app', color: '#1c7dff', initials: 'Ge', gradient: 'linear-gradient(135deg,#4d9fff,#7b61ff)' },
+  { id: 'copilot', name: 'Copilot', url: 'https://copilot.microsoft.com/', color: '#7b61ff', initials: 'Co', gradient: 'linear-gradient(135deg,#31c48d,#1c7dff 55%,#b45cff)' },
 ];
 
 export const BOT_BY_ID = Object.fromEntries(BOTS.map((b) => [b.id, b]));
@@ -17,7 +17,7 @@ export const BOT_BY_ID = Object.fromEntries(BOTS.map((b) => [b.id, b]));
 // vong 3: doc ban sua cuoi cua ca 4 bot + phan bien vong 2, roi chot ket luan
 // chung. Dang nhap trong tab nay la tai khoan Muse cua chinh nguoi dung
 // (mo muse.ai, dang nhap 1 lan, partition persist:council-muse nho lai).
-export const SYNTH_BOT = { id: 'muse', name: 'Muse — Tổng hợp', url: 'https://muse.ai/', color: '#0082fb' };
+export const SYNTH_BOT = { id: 'muse', name: 'Muse — Tổng hợp', url: 'https://muse.ai/', color: '#0082fb', initials: 'Mu', gradient: 'linear-gradient(135deg,#38b6ff,#0057d9)' };
 export const ALL_VIEWS = [...BOTS, SYNTH_BOT];
 
 // Vai vong 1 (giong ROLES_V1 trong hoi_dong.py)

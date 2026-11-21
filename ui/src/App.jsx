@@ -7,11 +7,14 @@ import {
   synthesisMarkSent, synthesisAnswerEdited, synthesisSaved,
   copyPromptRequested, pasteAnswerRequested, fetchAnswerRequested, exportRequested,
   copySynthesisPromptRequested, pasteSynthesisAnswerRequested, fetchSynthesisAnswerRequested,
+  fillComposerRequested, fillSynthesisComposerRequested,
+  scanCandidatesRequested, startPickRequested, applySelectorRequested, clearSelectorRequested,
   filesInitRequested, refreshFilesRequested, contextLoaded, recentFilesUpdated, logAdded, logCleared,
   openSessionRequested, dropAnswerFileRequested,
   selectRoundSavedCount, selectTotalSavedCount, STATUS,
 } from './store/councilSlice';
 import BotCard from './components/BotCard';
+import BotDialog from './components/BotDialog';
 import RoundStepper from './components/RoundStepper';
 import FilesPanel from './components/FilesPanel';
 import GeminiPanel from './components/GeminiPanel';
@@ -19,7 +22,7 @@ import GeminiPanel from './components/GeminiPanel';
 export default function App() {
   const dispatch = useDispatch();
   const council = useSelector((s) => s.council);
-  const { topic, phase, round, activeBotId, viewMode, answers, synthesis, log } = council;
+  const { topic, phase, round, activeBotId, viewMode, answers, synthesis, log, extractUi } = council;
   const savedCounts = {
     1: useSelector((s) => selectRoundSavedCount(s, 1)),
     2: useSelector((s) => selectRoundSavedCount(s, 2)),
@@ -27,6 +30,9 @@ export default function App() {
   };
   const totalSaved = useSelector(selectTotalSavedCount);
   const browserRef = useRef(null);
+  // Bot nao dang mo DIALOG thao tac (doc lap voi tab dang chon — dong dialog
+  // khong lam mat tab dang hien).
+  const [dialogBotId, setDialogBotId] = useState('');
   // Dang chay trong Electron (co window.councilApi) hay trinh duyet thuong?
   // Trinh duyet thuong khong nhung duoc chatbot — phai co nut mo tab that.
   const isElectron = typeof window !== 'undefined' && !!window.councilApi;
@@ -236,23 +242,38 @@ export default function App() {
             <aside className="sidebar">
               <div className="sidebar-title">Vòng {round} — thao tác cho từng bot</div>
               {BOTS.map((bot) => (
-                <BotCard
-                  key={bot.id}
-                  bot={bot}
-                  cell={answers[round][bot.id]}
-                  isActive={activeBotId === bot.id}
-                  onSelect={() => dispatch(selectBot(bot.id))}
-                  onCopy={() => dispatch(copyPromptRequested(bot.id))}
-                  onSent={() => dispatch(markSent(bot.id))}
-                  onPaste={() => dispatch(pasteAnswerRequested(bot.id))}
-                  onFetch={() => dispatch(fetchAnswerRequested(bot.id))}
-                  onSave={() => dispatch(saveAnswer(bot.id))}
-                  onEdit={(value) => dispatch(answerEdited({ botId: bot.id, answer: value }))}
-                  onReload={() => apiCall('reloadBot', bot.id)}
-                  onNewSession={() => apiCall('newSession', bot.id)}
-                  browserMode={!isElectron}
-                  onDropFile={handleBotDrop}
-                />
+                <React.Fragment key={bot.id}>
+                  <BotCard
+                    bot={bot}
+                    cell={answers[round][bot.id]}
+                    isActive={activeBotId === bot.id}
+                    onSelect={() => { dispatch(selectBot(bot.id)); setDialogBotId(bot.id); }}
+                    onDropFile={handleBotDrop}
+                  />
+                  {dialogBotId === bot.id && (
+                    <BotDialog
+                      bot={bot}
+                      cell={answers[round][bot.id]}
+                      browserMode={!isElectron}
+                      onCopy={() => dispatch(copyPromptRequested(bot.id))}
+                      onFillComposer={() => dispatch(fillComposerRequested(bot.id))}
+                      onSent={() => dispatch(markSent(bot.id))}
+                      onFetch={() => dispatch(fetchAnswerRequested(bot.id))}
+                      onPaste={() => dispatch(pasteAnswerRequested(bot.id))}
+                      onSave={() => dispatch(saveAnswer(bot.id))}
+                      onEdit={(value) => dispatch(answerEdited({ botId: bot.id, answer: value }))}
+                      onReload={() => apiCall('reloadBot', bot.id)}
+                      onNewSession={() => apiCall('newSession', bot.id)}
+                      candidates={extractUi?.candidates?.[bot.id] || []}
+                      picking={extractUi?.picking || ''}
+                      onScan={() => dispatch(scanCandidatesRequested(bot.id))}
+                      onStartPick={() => dispatch(startPickRequested(bot.id))}
+                      onApplySelector={(selector, source) => dispatch(applySelectorRequested({ botId: bot.id, selector, source }))}
+                      onClearSelector={() => dispatch(clearSelectorRequested(bot.id))}
+                      onClose={() => setDialogBotId('')}
+                    />
+                  )}
+                </React.Fragment>
               ))}
 
               <div className="sidebar-title">Bước cuối — Tổng hợp (sau vòng 3)</div>
@@ -260,19 +281,33 @@ export default function App() {
                 bot={SYNTH_BOT}
                 cell={synthesis || { status: STATUS.idle, answer: '' }}
                 isActive={activeBotId === 'muse'}
-                onSelect={() => dispatch(selectBot('muse'))}
-                onCopy={() => dispatch(copySynthesisPromptRequested())}
-                onSent={() => dispatch(synthesisMarkSent())}
-                onPaste={() => dispatch(pasteSynthesisAnswerRequested())}
-                onFetch={() => dispatch(fetchSynthesisAnswerRequested())}
-                onSave={() => dispatch(synthesisSaved())}
-                onEdit={(value) => dispatch(synthesisAnswerEdited(value))}
-                onReload={() => apiCall('reloadBot', 'muse')}
-                onNewSession={() => apiCall('newSession', 'muse')}
-                browserMode={!isElectron}
-                synth
+                onSelect={() => { dispatch(selectBot('muse')); setDialogBotId('muse'); }}
                 onDropFile={handleBotDrop}
               />
+              {dialogBotId === 'muse' && (
+                <BotDialog
+                  bot={SYNTH_BOT}
+                  cell={synthesis || { status: STATUS.idle, answer: '' }}
+                  synth
+                  browserMode={!isElectron}
+                  onCopy={() => dispatch(copySynthesisPromptRequested())}
+                  onFillComposer={() => dispatch(fillSynthesisComposerRequested())}
+                  onSent={() => dispatch(synthesisMarkSent())}
+                  onFetch={() => dispatch(fetchSynthesisAnswerRequested())}
+                  onPaste={() => dispatch(pasteSynthesisAnswerRequested())}
+                  onSave={() => dispatch(synthesisSaved())}
+                  onEdit={(value) => dispatch(synthesisAnswerEdited(value))}
+                  onReload={() => apiCall('reloadBot', 'muse')}
+                  onNewSession={() => apiCall('newSession', 'muse')}
+                  candidates={extractUi?.candidates?.muse || []}
+                  picking={extractUi?.picking || ''}
+                  onScan={() => dispatch(scanCandidatesRequested('muse'))}
+                  onStartPick={() => dispatch(startPickRequested('muse'))}
+                  onApplySelector={(selector, source) => dispatch(applySelectorRequested({ botId: 'muse', selector, source }))}
+                  onClearSelector={() => dispatch(clearSelectorRequested('muse'))}
+                  onClose={() => setDialogBotId('')}
+                />
+              )}
 
               <FilesPanel />
 

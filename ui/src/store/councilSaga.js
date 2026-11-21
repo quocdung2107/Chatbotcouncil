@@ -1,4 +1,5 @@
-import { all, call, put, select, takeEvery } from 'redux-saga/effects';
+import { all, call, delay, put, select, takeEvery } from 'redux-saga/effects';
+import { getCustomSelector, setCustomSelector, clearCustomSelector } from '../lib/answerSettings';
 import {
   buildPrompt, buildSynthesisPrompt, buildExportMarkdown,
   buildBriefingText, buildRequestText, sessionFolderName, sessionFileName,
@@ -14,6 +15,9 @@ import {
   geminiTestRequested, geminiClaimCardsRequested, geminiFormCheckRequested, geminiSynthBriefRequested,
   promptCopied, answerPasted, answerFetched, saveAnswer, nextRound, finishSession,
   synthesisPromptCopied, synthesisAnswerPasted, synthesisAnswerFetched, synthesisSaved,
+  candidatesReady, pickStarted, pickFinished, selectorApplied, selectorCleared,
+  fillComposerRequested, fillSynthesisComposerRequested,
+  scanCandidatesRequested, startPickRequested, applySelectorRequested, clearSelectorRequested,
   geminiBusy, geminiFailed, claimCardsReady, formReportReady, synthBriefReady, geminiTestOk,
   startSession,
   exportDone, logAdded, selectCouncil, selectRoundComplete,
@@ -110,7 +114,8 @@ function* pasteAnswerSaga(action) {
 
 // 2b) LAY DAP AN TU TAB bang 1 nut bam: Electron doc khoi dap an assistant
 // gan nhat ngay trong tab chatbot (khong can boi den + Ctrl+C), dien vao o
-// nhap de nguoi dung doc lai/sua roi moi bam "Luu dap an".
+// nhap de nguoi dung doc lai/sua roi moi bam "Luu dap an". Neu nguoi dung
+// da dat selector tuy chinh (tu trang that) thi truyen kem de uu tien.
 function* fetchAnswerSaga(action) {
   const botId = action.payload;
   const api = getApi();
@@ -118,12 +123,111 @@ function* fetchAnswerSaga(action) {
     yield put(logAdded('Nút lấy đáp án từ tab chỉ có ở bản app Electron (bản trình duyệt không đọc được nội dung tab khác). Hãy dùng nút "Dán từ clipboard" ở chế độ này.'));
     return;
   }
-  const result = yield call(api.extractAnswer, botId);
+  const result = yield call(api.extractAnswer, botId, getCustomSelector(botId));
   if (!result?.ok) {
     yield put(logAdded(`Không lấy được đáp án của ${botId}: ${result?.error || 'lỗi không rõ'}`));
     return;
   }
   yield put(answerFetched({ botId, answer: String(result.text) }));
+}
+
+// 2d) DAN PROMPT THANG VAO O NHAP cua chatbot trong tab: app dien prompt
+// vao dung o nhap cua trang, nguoi dung doc lai ngay trong trang roi TU
+// bam Gui — app khong bam Gui ho (giu ranh gioi ban tu dong).
+function* fillComposerSaga(action) {
+  const botId = action.payload;
+  const api = getApi();
+  if (!api?.fillComposer) {
+    yield put(logAdded('Nút dán prompt vào ô nhập chỉ có ở bản app Electron. Ở bản trình duyệt hãy dùng "Copy prompt" rồi dán tay (Ctrl+V).'));
+    return;
+  }
+  const state = yield select(selectCouncil);
+  const prompt = buildPrompt({ topic: state.topic, round: state.round, botId, answers: state.answers, contextText: state.files.contextText, claimCards: state.coordinator?.claimCards });
+  const result = yield call(api.fillComposer, botId, prompt);
+  if (!result?.ok) {
+    yield put(logAdded(`Không dán được prompt vào ô nhập của ${botId}: ${result?.error || 'lỗi không rõ'}`));
+    return;
+  }
+  yield put(promptCopied(botId));
+  yield put(logAdded(`Đã dán prompt vòng ${state.round} vào Ô NHẬP của ${botId} — hãy đọc lại ngay trong tab rồi tự bấm Gửi ở trang chatbot.`));
+}
+
+function* fillSynthesisComposerSaga() {
+  const api = getApi();
+  if (!api?.fillComposer) {
+    yield put(logAdded('Nút dán prompt vào ô nhập chỉ có ở bản app Electron. Ở bản trình duyệt hãy dùng "Copy prompt" rồi dán tay (Ctrl+V).'));
+    return;
+  }
+  const state = yield select(selectCouncil);
+  const prompt = buildSynthesisPrompt({ topic: state.topic, answers: state.answers, contextText: state.files.contextText, synthBrief: state.coordinator?.synthBrief });
+  const result = yield call(api.fillComposer, 'muse', prompt);
+  if (!result?.ok) {
+    yield put(logAdded(`Không dán được prompt tổng hợp vào ô nhập của Muse: ${result?.error || 'lỗi không rõ'}`));
+    return;
+  }
+  yield put(synthesisPromptCopied());
+  yield put(logAdded('Đã dán prompt TỔNG HỢP vào Ô NHẬP của tab Muse — hãy đọc lại trong tab rồi tự bấm Gửi.'));
+}
+
+// 2e) QUET VUNG UNG VIEN tu trang that cho panel cai dat lay dap an.
+function* scanCandidatesSaga(action) {
+  const botId = action.payload;
+  const api = getApi();
+  if (!api?.scanCandidates) {
+    yield put(logAdded('Quét vùng ứng viên chỉ có ở bản app Electron.'));
+    return;
+  }
+  const result = yield call(api.scanCandidates, botId);
+  if (!result?.ok) {
+    yield put(logAdded(`Không quét được vùng ứng viên của ${botId}: ${result?.error || 'lỗi không rõ'}`));
+    return;
+  }
+  yield put(candidatesReady({ botId, candidates: result.candidates }));
+}
+
+// 2f) CHON VUNG TRUC TIEP tren trang: bat pick trong tab roi hoi ket qua
+// moi giay (toi da 3 phut) cho den khi nguoi dung bam vao 1 khoi.
+function* startPickSaga(action) {
+  const botId = action.payload;
+  const api = getApi();
+  if (!api?.startPick || !api?.pollPick) {
+    yield put(logAdded('Chọn vùng trực tiếp chỉ có ở bản app Electron.'));
+    return;
+  }
+  const started = yield call(api.startPick, botId);
+  if (!started?.ok) {
+    yield put(logAdded(`Không bật được chế độ chọn vùng cho ${botId}: ${started?.error || 'lỗi không rõ'}`));
+    return;
+  }
+  yield put(pickStarted(botId));
+  for (let i = 0; i < 180; i++) {
+    yield delay(1000);
+    const r = yield call(api.pollPick, botId);
+    if (!r || !r.done) continue;
+    if (r.ok && r.selector) {
+      yield call(setCustomSelector, botId, r.selector);
+      yield put(selectorApplied({ botId, selector: r.selector, source: 'chọn trực tiếp trên trang' }));
+      yield put(pickFinished(`Vùng bạn vừa chọn cho ${botId} có ${r.length} ký tự — mở đầu: "${r.preview || ''}". Hãy bấm "Lấy đáp án từ tab" để thử ngay.`));
+    } else {
+      yield put(pickFinished(`Chọn vùng cho ${botId} không thành công: ${r.error || 'đã hủy'}`));
+    }
+    return;
+  }
+  yield put(pickFinished(`Đã hết 3 phút chờ chọn vùng cho ${botId} — bấm lại nút chọn vùng khi sẵn sàng.`));
+}
+
+// 2g) Ap dung / xoa selector tuy chinh (tu danh sach ung vien hoac tu go).
+function* applySelectorSaga(action) {
+  const { botId, selector, source } = action.payload || {};
+  if (!selector || !String(selector).trim()) return;
+  yield call(setCustomSelector, botId, String(selector).trim());
+  yield put(selectorApplied({ botId, selector: String(selector).trim(), source: source || 'tự nhập' }));
+}
+
+function* clearSelectorSaga(action) {
+  const botId = action.payload;
+  yield call(clearCustomSelector, botId);
+  yield put(selectorCleared(botId));
 }
 
 // 2c) Tuong tu cho ket luan tong hop o tab Muse.
@@ -133,7 +237,7 @@ function* fetchSynthesisAnswerSaga() {
     yield put(logAdded('Nút lấy kết luận từ tab chỉ có ở bản app Electron. Hãy dùng nút "Dán từ clipboard" ở chế độ trình duyệt.'));
     return;
   }
-  const result = yield call(api.extractAnswer, 'muse');
+  const result = yield call(api.extractAnswer, 'muse', getCustomSelector('muse'));
   if (!result?.ok) {
     yield put(logAdded(`Không lấy được kết luận từ tab Muse: ${result?.error || 'lỗi không rõ'}`));
     return;
@@ -436,6 +540,12 @@ export default function* rootSaga() {
     takeEvery(pasteAnswerRequested.type, pasteAnswerSaga),
     takeEvery(fetchAnswerRequested.type, fetchAnswerSaga),
     takeEvery(fetchSynthesisAnswerRequested.type, fetchSynthesisAnswerSaga),
+    takeEvery(fillComposerRequested.type, fillComposerSaga),
+    takeEvery(fillSynthesisComposerRequested.type, fillSynthesisComposerSaga),
+    takeEvery(scanCandidatesRequested.type, scanCandidatesSaga),
+    takeEvery(startPickRequested.type, startPickSaga),
+    takeEvery(applySelectorRequested.type, applySelectorSaga),
+    takeEvery(clearSelectorRequested.type, clearSelectorSaga),
     takeEvery([answerPasted.type, saveAnswer.type], afterSaveSaga),
     takeEvery([synthesisAnswerPasted.type, synthesisSaved.type], afterSynthesisSaga),
     takeEvery(exportRequested.type, exportSaga),
