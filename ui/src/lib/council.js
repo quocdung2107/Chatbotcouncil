@@ -57,6 +57,22 @@ export const FORM_V2 = `## Đồng ý
 ## Chấm điểm
 - Đúng đắn: x/10 — Khả thi: x/10 — Đầy đủ: x/10`;
 
+// Muc tieu de bat buoc theo mau tung vong — Extractor v3 dung de cham diem
+// "co cau truc mau" (confidence.js), saga truyen xuong electron khi lay dap an.
+export const REQUIRED_HEADINGS = {
+  1: ['Kết luận ngắn', 'Luận điểm chính', 'Rủi ro', 'Độ tin cậy', 'Cần kiểm chứng thêm'],
+  2: ['Đồng ý', 'Không đồng ý', 'Điểm bài viết bỏ sót', 'Chấm điểm'],
+  3: ['Kết luận ngắn', 'Luận điểm chính', 'Rủi ro', 'Độ tin cậy', 'Cần kiểm chứng thêm'],
+};
+
+// Form vong 3 = form vong 1 + phan DOI CHIEU bat buoc voi phan bien vong 2
+// (moi diem phan bien phai ghi ro "Da doi" hoac "Khong doi vi...").
+export const FORM_V3 = FORM_V1 + `
+
+## Đối chiếu với phản biện vòng 2
+- [điểm phản biện] — Đã đổi: ... / Không đổi vì: ...
+(liệt kê TỪNG điểm phản biện, mỗi điểm ghi rõ Đã đổi thành gì, hoặc Không đổi vì lý do gì)`;
+
 const ALIASES = ['A', 'B', 'C', 'D'];
 
 // An danh vong 2: xao thu tu bai theo nguoi nhan (moi nguoi nhan thay mot
@@ -170,7 +186,10 @@ export function buildRequestText(topic, contextText) {
 // answers: { [round]: { [botId]: { answer } } } — dung prompt cho 1 bot o 1 vong.
 // contextText (tu file nguoi dung nap/keo-tha vao) chi dinh o VONG 1 va buoc
 // tong hop — vong 2/3 da co ngu canh la bai vong truoc.
-export function buildPrompt({ topic, round, botId, answers, contextText, claimCards }) {
+export function buildPrompt({ topic, round, botId, answers, contextText, claimCards, skips }) {
+  // skips: { [round]: [botId...] } — bot da Skip chinh thuc (V3). Prompt vong
+  // sau loai bot da Skip khoi noi dung dua vao (Muc 3.3 cua thiet ke).
+  const skippedIn = (r) => (skips && Array.isArray(skips[r]) ? skips[r] : []);
   const bot = BOT_BY_ID[botId];
   const goal = (topic.goal || '').trim() || topic.title;
   // Che do: 'deep' (mac dinh) = 3 vong day du; 'fast' (opt-in cho chu de de)
@@ -195,8 +214,20 @@ export function buildPrompt({ topic, round, botId, answers, contextText, claimCa
     }
   } else if (round === 2) {
     role = 'Người phản biện (ẩn danh)';
-    const targetId = CRITIQUE_OF[botId];
-    const { aliasOf, order } = anonymize(botId);
+    // Bot da Skip vong 1 khong co bai — vong phan bien chi xoay quanh cac bot
+    // con lai (alias A.. gan lai theo thu tu xoay vong tren nhom con lai).
+    const activeR1 = BOTS.map((b) => b.id).filter((id) => !skippedIn(1).includes(id));
+    const useActive = activeR1.length >= 2 && activeR1.length < BOTS.length && activeR1.includes(botId);
+    const { aliasOf, order } = useActive
+      ? (() => {
+          const idx = activeR1.indexOf(botId);
+          const ord = activeR1.map((_, i) => activeR1[(i + idx + 1) % activeR1.length]);
+          const map = {};
+          ord.forEach((id, i) => { map[id] = ALIASES[i]; });
+          return { aliasOf: map, order: ord };
+        })()
+      : anonymize(botId);
+    const targetId = useActive ? order[0] : CRITIQUE_OF[botId];
     // Neu dieu phoi Gemini API da tom tat vong 1 thanh THE LUAN DIEM thi dung
     // the (gon, bot phan bien doc nhanh) — the van giu ten bot that nen phai
     // doi ten thanh ma an danh A-D truoc khi dua vao prompt. Chua co the thi
@@ -207,7 +238,9 @@ export function buildPrompt({ topic, round, botId, answers, contextText, claimCa
       let anonymized = claimCards;
       // Doi ten bot dai truoc, ten ngan sau, tranh de ten that trong the.
       [...BOTS].sort((a, b) => b.name.length - a.name.length).forEach((b) => {
-        anonymized = anonymized.split(b.name).join(`Bài ${aliasOf[b.id]}`);
+        // Bot da Skip vong 1 khong co alias — bai cua no khong nam trong vong
+        // phan bien; neu the con nhac ten thi thay bang nhan trung tinh.
+        anonymized = anonymized.split(b.name).join(aliasOf[b.id] ? `Bài ${aliasOf[b.id]}` : '(bot đã bỏ qua)');
       });
       cardsText = anonymized.trim();
       cardsNote = ' (đã rút gọn thành thẻ luận điểm bởi điều phối Gemini API)';
@@ -223,9 +256,11 @@ export function buildPrompt({ topic, round, botId, answers, contextText, claimCa
     role = 'Tác giả sửa bài của chính mình';
     const mine = (answers[1]?.[botId]?.answer || '').trim();
     const criticId = BOTS.find((b) => CRITIQUE_OF[b.id] === botId)?.id;
-    const critique = (answers[2]?.[criticId]?.answer || '').trim();
-    task = 'Vai của bạn vòng này: tác giả sửa lại bài của chính mình. Đọc các phản biện về bài của bạn, sửa những chỗ đúng, giữ lại những chỗ bạn vẫn bảo vệ được và giải thích vì sao.';
-    form = FORM_V1;
+    const critique = skippedIn(2).includes(criticId)
+      ? '(Bot phản biện đã BỎ QUA vòng 2 nên không có phản biện cho bài của bạn. Hãy tự rà soát lại bài của mình theo tiêu chí chấm, tự tìm điểm yếu nhất và sửa.)'
+      : (answers[2]?.[criticId]?.answer || '').trim();
+    task = 'Vai của bạn vòng này: tác giả sửa lại bài của chính mình. Đọc các phản biện về bài của bạn, sửa những chỗ đúng, giữ lại những chỗ bạn vẫn bảo vệ được và giải thích vì sao. BẮT BUỘC có mục "Đối chiếu với phản biện vòng 2": từng điểm phản biện phải ghi rõ Đã đổi thành gì, hoặc Không đổi vì lý do gì.';
+    form = FORM_V3;
     context = `\n\n=== BÀI GỐC CỦA BẠN (VÒNG 1) ===\n${mine}\n\n=== PHẢN BIỆN VỀ BÀI CỦA BẠN (VÒNG 2) ===\n${critique}\n`;
   }
 
@@ -269,19 +304,33 @@ export const FORM_SYNTH = `## Kết luận cuối cùng
 // Prompt cho buoc tong hop cuoi cung (tab Muse). Dau vao: ban SUA CUOI
 // (vong 3) cua ca 4 bot la chinh, kem phan bien vong 2 de Muse thay diem nao
 // da bi bat be va cach cac bot cham diem nhau.
-export function buildSynthesisPrompt({ topic, answers, contextText, synthBrief }) {
+export function buildSynthesisPrompt({ topic, answers, contextText, synthBrief, skips }) {
   const goal = (topic.goal || '').trim() || topic.title;
   // Che do nhanh: ban cuoi la vong 1 noi tiep, khong co phan bien vong 2.
   const lastRound = topic.mode === 'fast' ? 1 : 3;
+  const skippedAll = [];
+  for (const r of [1, 2, 3]) {
+    for (const id of (skips && Array.isArray(skips[r]) ? skips[r] : [])) {
+      const nm = BOT_BY_ID[id]?.name || id;
+      if (!skippedAll.some((x) => x.id === id && x.round === r)) skippedAll.push({ id, round: r, name: nm });
+    }
+  }
+  const skippedLine = skippedAll.length
+    ? `Phiên này thiếu: ${skippedAll.map((x) => `${x.name} (bỏ qua ở vòng ${x.round})`).join(', ')}\n`
+    : '';
   const finalText = BOTS
-    .map((b) => `--- BẢN CUỐI (VÒNG ${lastRound}) CỦA ${b.name.toUpperCase()} ---\n${(answers[lastRound]?.[b.id]?.answer || '').trim() || '(chưa có đáp án)'}`)
+    .map((b) => {
+      const wasSkipped = skippedAll.some((x) => x.id === b.id && x.round === lastRound);
+      const body = wasSkipped ? '(bot đã BỎ QUA vòng này — không có bản cuối)' : ((answers[lastRound]?.[b.id]?.answer || '').trim() || '(chưa có đáp án)');
+      return `--- BẢN CUỐI (VÒNG ${lastRound}) CỦA ${b.name.toUpperCase()} ---\n${body}`;
+    })
     .join('\n\n');
   const critiqueText = topic.mode === 'fast' ? '(chế độ nhanh: không có vòng phản biện riêng)'
     : BOTS
       .map((b) => `--- PHẢN BIỆN (VÒNG 2) CỦA ${b.name.toUpperCase()} ---\n${(answers[2]?.[b.id]?.answer || '').trim() || '(chưa có đáp án)'}`)
       .join('\n\n');
   return `[HỘI ĐỒNG — Chủ đề: ${topic.title} — BƯỚC TỔNG HỢP CUỐI CÙNG — Muse]
-Mục tiêu chung: ${goal}
+${skippedLine}Mục tiêu chung: ${goal}
 Tiêu chí chấm:
 ${criteriaLines(topic.criteriaText)}${contextText && contextText.trim() ? `\n\n=== NGỮ CẢNH TỪ FILE NGƯỜI DÙNG CUNG CẤP ===\n${contextText.trim().slice(0, 12000)}\n` : ''}
 
@@ -291,6 +340,7 @@ Quy tắc tổng hợp:
 - Điểm nào cả 4 bài cùng thống nhất thì coi là đáng tin, nêu ngắn gọn.
 - Giữ lại các rủi ro và điểm chưa kiểm chứng mà phản biện vòng 2 đã chỉ ra nhưng bản cuối chưa giải quyết được.
 - Kế hoạch hành động phải cụ thể tới mức người dùng làm theo được ngay, bám đúng bối cảnh trong chủ đề/mục tiêu ở trên.
+- Nếu phiên có bot bị BỎ QUA (dòng 'Phiên này thiếu' ở đầu), phải ghi rõ điều đó trong mục 'Điểm bất đồng còn lại / hạn chế' của kết luận.
 
 ${synthBrief && synthBrief.trim() ? `=== GÓI TÓM TẮT CỦA ĐIỀU PHỐI (Gemini API — đọc trước để nắm nhanh, bản đầy đủ ở dưới) ===\n${synthBrief.trim()}\n\n` : ''}=== BẢN CUỐI CỦA 4 THÀNH VIÊN (VÒNG 3 — ĐÃ SỬA SAU PHẢN BIỆN) ===
 ${finalText}
@@ -313,7 +363,8 @@ export function buildExportMarkdown(state) {
     out.push(`## Vòng ${round}`, '');
     for (const bot of BOTS) {
       const ans = (answers[round]?.[bot.id]?.answer || '').trim();
-      out.push(`### ${bot.name}`, '', ans || '(chưa có đáp án)', '');
+      const wasSkipped = answers[round]?.[bot.id]?.status === 'skipped';
+      out.push(`### ${bot.name}`, '', wasSkipped ? '(bot đã BỎ QUA vòng này)' : (ans || '(chưa có đáp án)'), '');
     }
   }
   const synth = (state.synthesis?.answer || '').trim();

@@ -7,6 +7,7 @@ export const STATUS_LABEL = {
   [STATUS.sent]: 'Đã gửi — chờ đáp án',
   [STATUS.fetched]: 'Đã lấy về — chờ bạn duyệt',
   [STATUS.saved]: 'Đã lưu đáp án',
+  [STATUS.skipped]: 'Đã bỏ qua vòng này',
 };
 
 // Avatar rieng cho tung chatbot: vong tron gradient + chu viet tat, de nhin

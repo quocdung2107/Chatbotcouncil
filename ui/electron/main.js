@@ -160,10 +160,10 @@ ipcMain.handle('views:hide', () => { hideAllViews(); return true; });
 // Lay dap an cuoi cung cua chatbot ngay trong tab cua no (nut 1 cham o the
 // bot) — chi doc khi nguoi dung bam nut, ket qua ve o nhap de duyet roi moi
 // luu. Xem electron/answerExtract.js.
-ipcMain.handle('views:extract-answer', async (_e, botId, customSelector) => {
+ipcMain.handle('views:extract-answer', async (_e, botId, customSelector, opts) => {
   const view = views.get(botId);
   if (!view) return { ok: false, error: 'Tab này chưa được mở trong app — hãy bấm vào thẻ của bot để mở tab trước, đợi bot trả lời xong rồi bấm lại.' };
-  return extractFromView(view, botId, customSelector);
+  return extractFromView(view, botId, customSelector, opts || {});
 });
 // Quet cac vung noi dung ung vien ngay trong trang that (cho panel cai dat
 // lay dap an): nguoi dung xem truoc noi dung tung vung roi chon 1 vung lam

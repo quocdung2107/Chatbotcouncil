@@ -7,6 +7,7 @@ export const STATUS = {
   sent: 'sent', // nguoi dung da dan + bam Gui trong trang chatbot
   fetched: 'fetched', // da lay/dan dap an ve o nhap — cho nguoi dung duyet roi moi Luu
   saved: 'saved', // da co dap an luu ve
+  skipped: 'skipped', // V3: nguoi dung bam BO QUA bot nay o vong nay (chinh thuc)
 };
 
 function emptyAnswers() {
@@ -50,11 +51,18 @@ const initialState = {
   synthesis: { status: STATUS.idle, answer: '' },
   // Dieu phoi Gemini API (API key KHONG luu o day — key chi o localStorage
   // rieng cua panel, khong vao phien.json): ket qua dieu phoi cua phien.
-  coordinator: { claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '' },
+  coordinator: { claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '', consent: null },
+  // V3 (Muc 6 thiet ke): khung kiem dinh chat luong vong cua Gemini API —
+  // { roundN: { botId: { verdict, reasons } } }. MVP moi dung khung + co
+  // NEEDS_REVIEW do nguoi dung/Gemini gan; dien day du o V2.
+  qualityGate: {},
+  // V3: loi toan ven prompt (Muc 3.4) cua lan dan prompt gan nhat bi chan:
+  // { botId, round, missing: [] } — BotDialog hien canh bao nay.
+  integrityError: null,
   // Cai dat lay dap an nang cao (chi la trang thai giao dien tam thoi):
   // candidates[botId] = danh sach vung ung vien quet tu trang that,
   // picking = botId dang o che do chon vung truc tiep tren trang.
-  extractUi: { candidates: {}, picking: '' },
+  extractUi: { candidates: {}, lowCandidates: {}, picking: '' },
   files: emptyFiles(),
   log: [],
 };
@@ -69,6 +77,7 @@ const councilSlice = createSlice({
     },
     startSession(state) {
       if (!state.topic.title.trim()) return;
+      state.coordinator.consent = null; // phien moi: hoi lai canh bao Gemini
       state.phase = 'running';
       state.round = 1;
       state.activeBotId = 'chatgpt';
@@ -101,11 +110,18 @@ const councilSlice = createSlice({
       // Lay dap an tu tab (1 nut bam) hoac dan tu clipboard: chi dien vao o
       // nhap va danh dau "cho duyet" — CHUA luu, CHUA ghi file, CHUA chuyen
       // vong. Nguoi dung doc lai/sua roi bam "Luu dap an" moi co hieu luc.
-      const { botId, answer } = action.payload;
+      // V3: kem diem tin cay trich xuat (confidence/breakdown/strategy) neu
+      // lay tu tab; dan tu clipboard thi khong co diem.
+      const { botId, answer, confidence, breakdown, strategy } = action.payload;
       const cell = state.answers[state.round][botId];
       cell.answer = answer;
+      cell.confidence = confidence != null ? confidence : null;
+      cell.breakdown = breakdown || null;
+      cell.strategy = strategy || '';
+      cell.error = '';
       if (cell.status !== STATUS.saved) cell.status = STATUS.fetched;
-      state.log.unshift({ time: timeNow(), text: `Đã lấy đáp án vòng ${state.round} của ${botId} về ô nhập (${answer.length} ký tự) — hãy đọc lại, sửa nếu cần, rồi bấm "Lưu đáp án".` });
+      const confText = confidence != null ? ` Điểm tin cậy trích xuất: ${confidence}/100.` : '';
+      state.log.unshift({ time: timeNow(), text: `Đã lấy đáp án vòng ${state.round} của ${botId} về ô nhập (${answer.length} ký tự) — hãy đọc lại, sửa nếu cần, rồi bấm "Lưu đáp án".${confText}` });
     },
     answerEdited(state, action) {
       const { botId, answer } = action.payload;
@@ -166,6 +182,42 @@ const councilSlice = createSlice({
     },
     logCleared(state) {
       state.log = [];
+    },
+    // ---- V3: Skip bot chinh thuc + loi o + toan ven prompt ----
+    botSkipped(state, action) {
+      const { botId, reason } = action.payload || {};
+      const cell = state.answers[state.round]?.[botId];
+      if (!cell || cell.status === STATUS.saved) return;
+      cell.status = STATUS.skipped;
+      cell.skipped = { at: new Date().toISOString(), reason: (reason || '').trim() };
+      cell.error = '';
+      state.log.unshift({ time: timeNow(), text: `Đã BỎ QUA ${botId} ở vòng ${state.round}${reason ? ` — lý do: ${reason}` : ''}. Vòng sẽ đóng khi các bot còn lại đã lưu (cần tối thiểu 2 đáp án đã lưu để đi tiếp).` });
+    },
+    cellErrorSet(state, action) {
+      const { botId, message } = action.payload || {};
+      const cell = state.answers[state.round]?.[botId];
+      if (!cell) return;
+      cell.error = message || '';
+    },
+    integrityFailed(state, action) {
+      state.integrityError = action.payload || null;
+      if (action.payload) {
+        state.log.unshift({ time: timeNow(), text: `ĐÃ CHẶN dán prompt vòng ${action.payload.round} cho ${action.payload.botId}: prompt thiếu ${action.payload.missing.join('; ')}. Hãy kiểm tra lại đáp án vòng trước / thẻ luận điểm rồi thử lại.` });
+      }
+    },
+    integrityCleared(state) {
+      state.integrityError = null;
+    },
+    lowCandidatesReady(state, action) {
+      const { botId, candidates, confidence } = action.payload || {};
+      state.extractUi.lowCandidates[botId] = candidates || [];
+      state.log.unshift({ time: timeNow(), text: `Lấy đáp án của ${botId}: điểm tin cậy THẤP (${confidence}/100, dưới 60) nên CHƯA đổ vào ô đáp án. Hãy chọn lại vùng đúng trong dialog của bot (danh sách ứng viên ở dưới ô đáp án) hoặc dùng chế độ chọn vùng trực tiếp, rồi bấm "Lấy đáp án từ tab" lại.` });
+    },
+    geminiConsentSet(state, action) {
+      state.coordinator.consent = !!action.payload;
+      state.log.unshift({ time: timeNow(), text: action.payload
+        ? 'Bạn đã ĐỒNG Ý gửi nội dung phiên lên Gemini API để điều phối (chỉ trong phiên này).'
+        : 'Bạn đã TẮT điều phối Gemini API cho phiên này — app chạy thủ công bằng nguyên văn đáp án như cách cũ.' });
     },
     // ---- Dieu phoi Gemini API ----
     geminiBusy(state, action) {
@@ -264,7 +316,9 @@ const councilSlice = createSlice({
       state.topic = data.topic;
       state.answers = data.answers;
       state.synthesis = data.synthesis || { status: STATUS.idle, answer: '' };
-      state.coordinator = data.coordinator || { claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '' };
+      state.coordinator = { claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '', consent: null, ...(data.coordinator || {}) };
+      if (typeof data.geminiConsent === 'boolean') state.coordinator.consent = data.geminiConsent;
+      state.qualityGate = data.qualityGate || {};
       state.phase = data.phase || 'running';
       state.round = data.round || 1;
       state.activeBotId = 'chatgpt';
@@ -320,6 +374,7 @@ export const {
   filesStateLoaded, workDirChanged, sessionFolderReady, sessionFilesUpdated,
   recentFilesUpdated, historyUpdated, contextLoaded, contextCleared, sessionRestored,
   candidatesReady, pickStarted, pickFinished, selectorApplied, selectorCleared,
+  botSkipped, cellErrorSet, integrityFailed, integrityCleared, lowCandidatesReady, geminiConsentSet,
   copyPromptRequested, pasteAnswerRequested, fetchAnswerRequested, exportRequested,
   fillComposerRequested, fillSynthesisComposerRequested,
   scanCandidatesRequested, startPickRequested, applySelectorRequested, clearSelectorRequested,
@@ -337,6 +392,14 @@ export const selectCouncil = (state) => state.council;
 export const selectCell = (state, round, botId) => state.council.answers[round][botId];
 export const selectRoundSavedCount = (state, round) =>
   BOTS.filter((b) => state.council.answers[round][b.id].status === STATUS.saved).length;
+export const selectRoundSkippedCount = (state, round) =>
+  BOTS.filter((b) => state.council.answers[round][b.id].status === STATUS.skipped).length;
 export const selectTotalSavedCount = (state) =>
   [1, 2, 3].reduce((sum, r) => sum + selectRoundSavedCount(state, r), 0);
-export const selectRoundComplete = (state, round) => selectRoundSavedCount(state, round) === BOTS.length;
+// V3 (Muc 3.3): vong "du/dong" khi moi bot deu SAVED hoac SKIPPED va co toi
+// thieu 2 bot SAVED. Ban cu (chua co Skip) hanh vi khong doi: 4 SAVED.
+export const selectRoundComplete = (state, round) => {
+  const saved = selectRoundSavedCount(state, round);
+  const skipped = selectRoundSkippedCount(state, round);
+  return saved + skipped === BOTS.length && saved >= 2;
+};

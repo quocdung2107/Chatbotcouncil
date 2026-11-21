@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('councilApi', {
   layoutViews: (payload) => ipcRenderer.invoke('views:layout', payload),
   hideViews: () => ipcRenderer.invoke('views:hide'),
   reloadBot: (botId) => ipcRenderer.invoke('views:reload', botId),
-  extractAnswer: (botId, customSelector) => ipcRenderer.invoke('views:extract-answer', botId, customSelector || ''),
+  extractAnswer: (botId, customSelector, opts) => ipcRenderer.invoke('views:extract-answer', botId, customSelector || '', opts || {}),
   scanCandidates: (botId) => ipcRenderer.invoke('views:scan-candidates', botId),
   startPick: (botId) => ipcRenderer.invoke('views:start-pick', botId),
   pollPick: (botId) => ipcRenderer.invoke('views:poll-pick', botId),

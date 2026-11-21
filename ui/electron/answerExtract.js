@@ -1,4 +1,14 @@
-// Trich xuat DAP AN cua chatbot ngay trong tab cua no — ban v2.
+// Trich xuat DAP AN cua chatbot ngay trong tab cua no — ban v3 (Extractor v3).
+//
+// Ban v3 (theo thiet ke da chot docs/thiet-ke-nang-cap-v3.md Muc 2):
+//  - Tra ve OBJECT { text, confidence, breakdown, strategy, candidates } thay
+//    vi chi text. Confidence cham theo bang 25/20/25/15/10/5 (strategy /
+//    length / stability / duplicate / headings / stopVisible).
+//  - On dinh: doc trang 2 LAN cach ~1,2 giay roi so do giong — bot con dang
+//    go thi diem stability thap, o duyet se canh bao.
+//  - Trung: so voi dap an truoc cua chinh bot (saga truyen prevText vao).
+//  - Fallback giu thu tu: custom -> default -> scan (cham diem khoi) ->
+//    deep/Shadow DOM -> tra candidates de nguoi dung pick.
 //
 // Ban v1 that bai voi Copilot va mot so trang ChatGPT vi 2 ly do:
 //  1) Copilot dung SHADOW DOM — document.querySelectorAll thong thuong khong
@@ -165,13 +175,64 @@ function queryAny(sel) {
 }
 `;
 
+
+// ===== Confidence scoring (ban sao cua src/lib/confidence.js — PHAI khop) =====
+const STRATEGY_POINTS = { custom: 25, pick: 25, default: 18, scan: 10, deep: 5 };
+
+function textSimilarity(a, b) {
+  const s1 = String(a || '').replace(/\s+/g, ' ').trim();
+  const s2 = String(b || '').replace(/\s+/g, ' ').trim();
+  if (!s1 && !s2) return 1;
+  if (!s1 || !s2) return 0;
+  if (s1 === s2) return 1;
+  const bigrams = (str) => {
+    const map = new Map();
+    for (let i = 0; i < str.length - 1; i++) {
+      const g = str.slice(i, i + 2);
+      map.set(g, (map.get(g) || 0) + 1);
+    }
+    return map;
+  };
+  const m1 = bigrams(s1); const m2 = bigrams(s2);
+  let hit = 0;
+  for (const [g, n] of m1) hit += Math.min(n, m2.get(g) || 0);
+  const total = (s1.length - 1) + (s2.length - 1);
+  return total > 0 ? (2 * hit) / total : 0;
+}
+
+function scoreConfidence({ strategy, text, secondText, prevText, requiredHeadings, stopVisible } = {}) {
+  const value = String(text || '');
+  const breakdown = {};
+  breakdown.strategy = STRATEGY_POINTS[strategy] != null ? STRATEGY_POINTS[strategy] : 5;
+  const len = value.length;
+  breakdown.length = len >= 200 ? 20 : len >= 80 ? 12 : len >= 20 ? 5 : 0;
+  if (secondText == null) breakdown.stability = 0;
+  else {
+    const sim = textSimilarity(value, secondText);
+    breakdown.stability = sim >= 0.98 ? 25 : sim >= 0.9 ? 12 : 0;
+  }
+  if (prevText && String(prevText).trim()) {
+    breakdown.duplicate = textSimilarity(value, prevText) >= 0.95 ? 0 : 15;
+  } else breakdown.duplicate = 15;
+  const headings = Array.isArray(requiredHeadings) ? requiredHeadings.filter(Boolean) : [];
+  if (!headings.length) breakdown.headings = 10;
+  else {
+    const missing = headings.filter((h) => !value.includes(h)).length;
+    breakdown.headings = Math.max(0, 10 - missing * 3);
+  }
+  breakdown.stopVisible = stopVisible ? 0 : 5;
+  const confidence = Object.values(breakdown).reduce((sum, n) => sum + n, 0);
+  return { confidence, breakdown };
+}
+
 function buildExtractScript(botId, customSelector) {
-  const selectors = [];
-  if (customSelector && String(customSelector).trim()) selectors.push(String(customSelector).trim());
-  selectors.push(...(SITE_SELECTORS[botId] || []), ...GENERIC_SELECTORS);
+  const hasCustom = !!(customSelector && String(customSelector).trim());
+  const siteSelectors = SITE_SELECTORS[botId] || [];
   return `(() => {
 ${PAGE_HELPERS}
-  const SELECTORS = ${JSON.stringify(selectors)};
+  const CUSTOM = ${JSON.stringify(hasCustom ? String(customSelector).trim() : '')};
+  const SITE = ${JSON.stringify(siteSelectors)};
+  const GENERIC = ${JSON.stringify(GENERIC_SELECTORS)};
   const pickFrom = (els) => {
     for (const needVisible of [true, false]) {
       for (let i = els.length - 1; i >= 0; i--) {
@@ -182,29 +243,44 @@ ${PAGE_HELPERS}
     }
     return '';
   };
-  for (const sel of SELECTORS) {
-    const text = pickFrom(queryAny(sel));
-    if (text) return { ok: true, text, selector: sel };
-  }
-  // Lop cuoi: quet thong minh cac khoi giong "tin nhan/dap an" (gom ca trong
-  // shadow DOM) va lay khoi cuoi cung du dai — nguoi dung van duyet truoc
-  // khi Luu nen sai sot o lop nay se bi phat hien o o nhap.
-  const BROAD = 'article, model-response, cib-message, cib-message-group, [data-testid], [data-message-author-role], [class*="message" i], [class*="response" i], [class*="markdown" i]';
-  const seenText = new Set(); const cands = [];
+  const stopVisible = (() => {
+    const STOP_SEL = 'button[data-testid="stop-button"], button[aria-label*="Stop" i], button[aria-label*="stop" i], [aria-label*="Đang tạo" i], button[aria-label*="Dừng" i]';
+    try { return deepQueryAll(STOP_SEL).some((el) => isVisible(el)); } catch (_) { return false; }
+  })();
+  // Quet cac khoi ung vien (dung cho tang scan + danh sach candidates tra ve
+  // khi diem tin cay thap de nguoi dung chon lai).
+  const BROAD = 'article, model-response, cib-message, cib-message-group, [data-testid], [data-message-author-role], [class*="message" i], [class*="response" i], [class*="markdown" i], [class*="answer" i]';
+  const seenText = new Set(); const blocks = [];
   for (const el of deepQueryAll(BROAD)) {
     const tag = el.tagName.toLowerCase();
-    if (['nav', 'header', 'footer', 'form', 'textarea', 'button'].includes(tag)) continue;
+    if (['nav', 'header', 'footer', 'form', 'textarea', 'button', 'input'].includes(tag)) continue;
     const text = textOf(el);
     if (text.length < 60 || text.length > 40000) continue;
     const key = text.slice(0, 200);
     if (seenText.has(key)) continue;
     seenText.add(key);
-    cands.push({ el, text });
+    blocks.push({ el, text, selector: cssPath(el) });
   }
-  const minimal = cands.filter((c) => !cands.some((o) => o !== c && o.text.length < c.text.length && c.text.includes(o.text)));
-  const last = minimal[minimal.length - 1];
-  if (last) return { ok: true, text: last.text, selector: 'quet-thong-minh' };
-  return { ok: false, error: 'not-found' };
+  const minimal = blocks.filter((c) => !blocks.some((o) => o !== c && o.text.length < c.text.length && c.text.includes(o.text)));
+  const candidates = minimal.slice(-15).map((c) => ({ selector: c.selector, length: c.text.length, preview: c.text.replace(/\s+/g, ' ').slice(0, 160) }));
+  const done = (text, strategy, selector) => ({ ok: true, text, strategy, selector: selector || '', stopVisible, candidates });
+  // Tang 1: selector tuy chinh cua nguoi dung (da xac nhan tu trang that)
+  if (CUSTOM) { const t = pickFrom(queryAny(CUSTOM)); if (t) return done(t, 'custom', CUSTOM); }
+  // Tang 2: selector mac dinh theo site + generic
+  for (const sel of SITE.concat(GENERIC)) {
+    const t = pickFrom(queryAny(sel));
+    if (t) return done(t, 'default', sel);
+  }
+  // Tang 3: scan — khoi ung vien cuoi cung (dap an moi nhat o cuoi trang)
+  const lastBlock = minimal[minimal.length - 1];
+  if (lastBlock) {
+    // Tang 4: deep — neu innerText cua khoi scan qua ngan thi lay deep text
+    // (gom ca shadow DOM) cua chinh khoi do.
+    const deep = cleanText(deepText(lastBlock.el));
+    if (deep.length > lastBlock.text.length) return done(deep, 'deep', lastBlock.selector);
+    return done(lastBlock.text, 'scan', lastBlock.selector);
+  }
+  return { ok: false, error: 'not-found', stopVisible, candidates };
 })()`;
 }
 
@@ -363,16 +439,40 @@ async function runInView(view, script) {
   }
 }
 
-async function extractFromView(view, botId, customSelector) {
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function extractFromView(view, botId, customSelector, opts = {}) {
   if (!view) return noView();
-  const r = await runInView(view, buildExtractScript(botId, customSelector));
-  if (r.missing) return noView();
-  if (r.error) return { ok: false, error: r.error };
-  const result = r.value;
-  if (!result || !result.ok || !String(result.text || '').trim()) {
-    return { ok: false, error: 'Không tìm thấy khối đáp án của bot trong tab (bot chưa trả lời xong, hoặc trang đã đổi giao diện). Hãy mở dialog của bot, vào "Cài đặt lấy đáp án" để QUÉT các vùng ứng viên hoặc CHỌN VÙNG trực tiếp trên trang thật — selector bạn chọn sẽ thay mặc định. Cách cũ "Dán từ clipboard" vẫn dùng được.' };
+  const script = buildExtractScript(botId, customSelector);
+  const first = await runInView(view, script);
+  if (first.missing) return noView();
+  if (first.error) return { ok: false, error: first.error };
+  const r1 = first.value;
+  if (!r1 || !r1.ok || !String(r1.text || '').trim()) {
+    return { ok: false, error: 'Không tìm thấy khối đáp án của bot trong tab (bot chưa trả lời xong, hoặc trang đã đổi giao diện). Hãy mở dialog của bot, vào "Cài đặt lấy đáp án" để QUÉT các vùng ứng viên hoặc CHỌN VÙNG trực tiếp trên trang thật — selector bạn chọn sẽ thay mặc định. Cách cũ "Dán từ clipboard" vẫn dùng được.', candidates: (r1 && r1.candidates) || [] };
   }
-  return { ok: true, text: String(result.text).trim(), selector: result.selector || '' };
+  // Lan doc 2 sau ~1,2s de cham diem on dinh (bot con go thi text se khac).
+  await sleep(1200);
+  const second = await runInView(view, script);
+  const r2 = second && second.value && second.value.ok ? second.value : null;
+  const text = String(r1.text).trim();
+  const { confidence, breakdown } = scoreConfidence({
+    strategy: r1.strategy,
+    text,
+    secondText: r2 ? String(r2.text || '') : null,
+    prevText: opts.prevText || '',
+    requiredHeadings: opts.requiredHeadings || [],
+    stopVisible: !!r1.stopVisible,
+  });
+  return {
+    ok: true,
+    text,
+    selector: r1.selector || '',
+    strategy: r1.strategy || 'deep',
+    confidence,
+    breakdown,
+    candidates: r1.candidates || [],
+  };
 }
 
 async function scanCandidatesInView(view) {
@@ -399,7 +499,7 @@ async function pollPickInView(view) {
   if (r.missing || r.error) return { done: true, ok: false, error: r.error || 'Tab chưa được mở.' };
   if (!r.value) return { done: false };
   if (r.value.cancelled) return { done: true, ok: false, error: 'Bạn đã hủy chọn vùng (ESC).' };
-  return { done: true, ok: true, selector: r.value.selector, length: r.value.length, preview: r.value.preview };
+  return { done: true, ok: true, selector: r.value.selector, length: r.value.length, preview: r.value.preview, textSample: r.value.textSample || '' };
 }
 
 async function fillComposerInView(view, botId, text) {
@@ -415,5 +515,5 @@ async function fillComposerInView(view, botId, text) {
 module.exports = {
   buildExtractScript, buildScanScript, buildPickStartScript, buildFillComposerScript,
   extractFromView, scanCandidatesInView, startPickInView, pollPickInView, fillComposerInView,
-  SITE_SELECTORS,
+  SITE_SELECTORS, scoreConfidence, textSimilarity, STRATEGY_POINTS,
 };

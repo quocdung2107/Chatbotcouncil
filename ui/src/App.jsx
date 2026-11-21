@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { BOTS, SYNTH_BOT } from './lib/council';
+import { BOTS, SYNTH_BOT, sessionFileName } from './lib/council';
 import {
   topicChanged, startSession, selectBot, setViewMode, markSent,
   answerEdited, saveAnswer, resetAll,
@@ -10,7 +10,7 @@ import {
   fillComposerRequested, fillSynthesisComposerRequested,
   scanCandidatesRequested, startPickRequested, applySelectorRequested, clearSelectorRequested,
   filesInitRequested, refreshFilesRequested, contextLoaded, recentFilesUpdated, logAdded, logCleared,
-  openSessionRequested, dropAnswerFileRequested,
+  openSessionRequested, dropAnswerFileRequested, botSkipped,
   selectRoundSavedCount, selectTotalSavedCount, STATUS,
 } from './store/councilSlice';
 import BotCard from './components/BotCard';
@@ -18,11 +18,12 @@ import BotDialog from './components/BotDialog';
 import RoundStepper from './components/RoundStepper';
 import FilesPanel from './components/FilesPanel';
 import GeminiPanel from './components/GeminiPanel';
+import NextActionBar from './components/NextActionBar';
 
 export default function App() {
   const dispatch = useDispatch();
   const council = useSelector((s) => s.council);
-  const { topic, phase, round, activeBotId, viewMode, answers, synthesis, log, extractUi } = council;
+  const { topic, phase, round, activeBotId, viewMode, answers, synthesis, log, extractUi, integrityError } = council;
   const savedCounts = {
     1: useSelector((s) => selectRoundSavedCount(s, 1)),
     2: useSelector((s) => selectRoundSavedCount(s, 2)),
@@ -167,6 +168,10 @@ export default function App() {
 
       {phase !== 'setup' && <RoundStepper round={round} savedCounts={savedCounts} phase={phase} synthesisSaved={synthesis?.status === STATUS.saved} mode={topic.mode} />}
 
+      {phase !== 'setup' && (
+        <NextActionBar onOpenBot={(botId) => { dispatch(selectBot(botId)); setDialogBotId(botId); }} />
+      )}
+
       <div className="main-row">
         {phase === 'setup' ? (
           <section className="setup">
@@ -266,9 +271,14 @@ export default function App() {
                       onNewSession={() => apiCall('newSession', bot.id)}
                       candidates={extractUi?.candidates?.[bot.id] || []}
                       picking={extractUi?.picking || ''}
+                      round={round}
+                      onSkip={(reason) => dispatch(botSkipped({ botId: bot.id, reason }))}
+                      integrityError={integrityError}
+                      lowCandidates={extractUi?.lowCandidates?.[bot.id] || []}
+                      fileExists={(council.files?.sessionFiles || []).some((f) => f.name === sessionFileName(bot.id, round))}
                       onScan={() => dispatch(scanCandidatesRequested(bot.id))}
                       onStartPick={() => dispatch(startPickRequested(bot.id))}
-                      onApplySelector={(selector, source) => dispatch(applySelectorRequested({ botId: bot.id, selector, source }))}
+                      onApplySelector={(selector, source, fingerprint) => dispatch(applySelectorRequested({ botId: bot.id, selector, source, fingerprint }))}
                       onClearSelector={() => dispatch(clearSelectorRequested(bot.id))}
                       onClose={() => setDialogBotId('')}
                     />
@@ -301,9 +311,8 @@ export default function App() {
                   onNewSession={() => apiCall('newSession', 'muse')}
                   candidates={extractUi?.candidates?.muse || []}
                   picking={extractUi?.picking || ''}
-                  onScan={() => dispatch(scanCandidatesRequested('muse'))}
-                  onStartPick={() => dispatch(startPickRequested('muse'))}
-                  onApplySelector={(selector, source) => dispatch(applySelectorRequested({ botId: 'muse', selector, source }))}
+                  round={round}
+                  onApplySelector={(selector, source, fingerprint) => dispatch(applySelectorRequested({ botId: 'muse', selector, source, fingerprint }))}
                   onClearSelector={() => dispatch(clearSelectorRequested('muse'))}
                   onClose={() => setDialogBotId('')}
                 />

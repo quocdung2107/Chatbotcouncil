@@ -3,8 +3,10 @@ import { getCustomSelector, setCustomSelector, clearCustomSelector } from '../li
 import {
   buildPrompt, buildSynthesisPrompt, buildExportMarkdown,
   buildBriefingText, buildRequestText, sessionFolderName, sessionFileName,
-  SYNTH_FILE_NAME, SESSION_JSON_NAME, BOT_BY_ID,
+  SYNTH_FILE_NAME, SESSION_JSON_NAME, BOT_BY_ID, REQUIRED_HEADINGS, anonymize, BOTS,
 } from '../lib/council';
+import { checkPromptIntegrity } from '../lib/promptIntegrity';
+import { deriveCellStatus, CELL_STATUS } from '../lib/nextAction';
 import { callGemini, buildClaimCardsPrompt, buildFormCheckPrompt, buildSynthBriefPrompt } from '../lib/gemini';
 import {
   copyPromptRequested, pasteAnswerRequested, fetchAnswerRequested, exportRequested,
@@ -19,6 +21,7 @@ import {
   fillComposerRequested, fillSynthesisComposerRequested,
   scanCandidatesRequested, startPickRequested, applySelectorRequested, clearSelectorRequested,
   geminiBusy, geminiFailed, claimCardsReady, formReportReady, synthBriefReady, geminiTestOk,
+  botSkipped, cellErrorSet, integrityFailed, integrityCleared, lowCandidatesReady,
   startSession,
   exportDone, logAdded, selectCouncil, selectRoundComplete,
   filesStateLoaded, workDirChanged, sessionFolderReady, sessionFilesUpdated,
@@ -49,6 +52,61 @@ function* clipboardRead() {
   return '';
 }
 
+// V3: danh sach bot da Skip theo vong — { 1: [botId...], 2: [...], 3: [...] }
+// de buildPrompt/buildSynthesisPrompt loai bot da Skip khoi noi dung (Muc 3.3).
+function skipsOf(state) {
+  const out = { 1: [], 2: [], 3: [] };
+  for (const r of [1, 2, 3]) {
+    for (const b of BOTS) {
+      if (state.answers?.[r]?.[b.id]?.status === 'skipped') out[r].push(b.id);
+    }
+  }
+  return out;
+}
+
+// V3 (Muc 6): bang trang thai o ben vung persist vao phien.json — chi cac
+// trang thai ben (SAVED / SKIPPED / NEEDS_REVIEW) kem metadata can thiet.
+function cellsOf(state) {
+  const cells = {};
+  for (const r of [1, 2, 3]) {
+    for (const b of BOTS) {
+      const cell = state.answers?.[r]?.[b.id];
+      if (!cell) continue;
+      const st = deriveCellStatus(cell);
+      if (![CELL_STATUS.SAVED, CELL_STATUS.SKIPPED, CELL_STATUS.NEEDS_REVIEW].includes(st)) continue;
+      if (!cells[b.id]) cells[b.id] = {};
+      const entry = { status: st };
+      if (cell.confidence != null) entry.confidence = cell.confidence;
+      if (st === CELL_STATUS.SKIPPED && cell.skipped) {
+        entry.skippedAt = cell.skipped.at || '';
+        entry.reason = cell.skipped.reason || '';
+      }
+      cells[b.id][r] = entry;
+    }
+  }
+  return cells;
+}
+
+// Kiem tra toan ven prompt (Muc 3.4) truoc khi dan vao o nhap. Tra ve true
+// neu OK; false + da bao loi neu thieu.
+function* guardPromptIntegrity(prompt, round, botId, state) {
+  let expectedAliases;
+  if (round === 2) {
+    const { aliasOf } = anonymize(botId);
+    const skippedR1 = skipsOf(state)[1];
+    expectedAliases = Object.entries(aliasOf)
+      .filter(([id]) => !skippedR1.includes(id))
+      .map(([, a]) => a);
+  }
+  const check = checkPromptIntegrity(prompt, round, expectedAliases);
+  if (!check.ok) {
+    yield put(integrityFailed({ botId, round, missing: check.missing }));
+    return false;
+  }
+  yield put(integrityCleared());
+  return true;
+}
+
 // Snapshot toan bo phien -> noi dung file phien.json (de mo lai phien cu).
 function snapshotOf(state) {
   return {
@@ -58,6 +116,11 @@ function snapshotOf(state) {
     answers: state.answers,
     synthesis: state.synthesis,
     coordinator: state.coordinator ? { claimCards: state.coordinator.claimCards, formReport: state.coordinator.formReport, synthBrief: state.coordinator.synthBrief } : undefined,
+    // V3 (Muc 6): truong moi — chi them, khong pha format cu. API key KHONG
+    // bao gio nam o day (key chi o localStorage cua GeminiPanel).
+    cells: cellsOf(state),
+    geminiConsent: typeof state.coordinator?.consent === 'boolean' ? state.coordinator.consent : null,
+    qualityGate: state.qualityGate || {},
     files: {
       sessionDir: state.files.sessionDir,
       sessionFolder: state.files.sessionFolder,
@@ -94,7 +157,7 @@ function* writeSnapshot() {
 function* copyPromptSaga(action) {
   const botId = action.payload;
   const state = yield select(selectCouncil);
-  const prompt = buildPrompt({ topic: state.topic, round: state.round, botId, answers: state.answers, contextText: state.files.contextText, claimCards: state.coordinator?.claimCards });
+  const prompt = buildPrompt({ topic: state.topic, round: state.round, botId, answers: state.answers, contextText: state.files.contextText, claimCards: state.coordinator?.claimCards, skips: skipsOf(state) });
   yield call(clipboardWrite, prompt);
   yield put(promptCopied(botId));
 }
@@ -123,12 +186,33 @@ function* fetchAnswerSaga(action) {
     yield put(logAdded('Nút lấy đáp án từ tab chỉ có ở bản app Electron (bản trình duyệt không đọc được nội dung tab khác). Hãy dùng nút "Dán từ clipboard" ở chế độ này.'));
     return;
   }
-  const result = yield call(api.extractAnswer, botId, getCustomSelector(botId));
+  const state = yield select(selectCouncil);
+  // Extractor v3 can: dap an truoc cua chinh bot (cham diem trung) + cac muc
+  // tieu de bat buoc cua mau vong nay (cham diem cau truc).
+  const prevRoundAnswer = state.answers[state.round - 1]?.[botId]?.answer || '';
+  const sameRoundSaved = state.answers[state.round]?.[botId]?.status === 'saved' ? state.answers[state.round][botId].answer : '';
+  const result = yield call(api.extractAnswer, botId, getCustomSelector(botId), {
+    prevText: prevRoundAnswer || sameRoundSaved || '',
+    requiredHeadings: REQUIRED_HEADINGS[state.round] || [],
+  });
   if (!result?.ok) {
+    yield put(cellErrorSet({ botId, message: result?.error || 'Không lấy được đáp án từ tab.' }));
     yield put(logAdded(`Không lấy được đáp án của ${botId}: ${result?.error || 'lỗi không rõ'}`));
     return;
   }
-  yield put(answerFetched({ botId, answer: String(result.text) }));
+  // Diem tin cay < 60: KHONG do vao o dap an — dua danh sach ung vien de
+  // nguoi dung chon lai vung dung (Muc 2.2 cua thiet ke).
+  if (typeof result.confidence === 'number' && result.confidence < 60) {
+    yield put(lowCandidatesReady({ botId, candidates: result.candidates || [], confidence: result.confidence }));
+    return;
+  }
+  yield put(answerFetched({
+    botId,
+    answer: String(result.text),
+    confidence: typeof result.confidence === 'number' ? result.confidence : null,
+    breakdown: result.breakdown || null,
+    strategy: result.strategy || '',
+  }));
 }
 
 // 2d) DAN PROMPT THANG VAO O NHAP cua chatbot trong tab: app dien prompt
@@ -142,7 +226,10 @@ function* fillComposerSaga(action) {
     return;
   }
   const state = yield select(selectCouncil);
-  const prompt = buildPrompt({ topic: state.topic, round: state.round, botId, answers: state.answers, contextText: state.files.contextText, claimCards: state.coordinator?.claimCards });
+  const prompt = buildPrompt({ topic: state.topic, round: state.round, botId, answers: state.answers, contextText: state.files.contextText, claimCards: state.coordinator?.claimCards, skips: skipsOf(state) });
+  // Muc 3.4: chan dan prompt neu thieu ma luan diem (vong 2) / doi chieu (vong 3).
+  const integrityOk = yield call(guardPromptIntegrity, prompt, state.round, botId, state);
+  if (!integrityOk) return;
   const result = yield call(api.fillComposer, botId, prompt);
   if (!result?.ok) {
     yield put(logAdded(`Không dán được prompt vào ô nhập của ${botId}: ${result?.error || 'lỗi không rõ'}`));
@@ -159,7 +246,7 @@ function* fillSynthesisComposerSaga() {
     return;
   }
   const state = yield select(selectCouncil);
-  const prompt = buildSynthesisPrompt({ topic: state.topic, answers: state.answers, contextText: state.files.contextText, synthBrief: state.coordinator?.synthBrief });
+  const prompt = buildSynthesisPrompt({ topic: state.topic, answers: state.answers, contextText: state.files.contextText, synthBrief: state.coordinator?.synthBrief, skips: skipsOf(state) });
   const result = yield call(api.fillComposer, 'muse', prompt);
   if (!result?.ok) {
     yield put(logAdded(`Không dán được prompt tổng hợp vào ô nhập của Muse: ${result?.error || 'lỗi không rõ'}`));
@@ -205,7 +292,7 @@ function* startPickSaga(action) {
     const r = yield call(api.pollPick, botId);
     if (!r || !r.done) continue;
     if (r.ok && r.selector) {
-      yield call(setCustomSelector, botId, r.selector);
+      yield call(setCustomSelector, botId, r.selector, { length: r.length || 0, head80: String(r.textSample || r.preview || '').slice(0, 80) });
       yield put(selectorApplied({ botId, selector: r.selector, source: 'chọn trực tiếp trên trang' }));
       yield put(pickFinished(`Vùng bạn vừa chọn cho ${botId} có ${r.length} ký tự — mở đầu: "${r.preview || ''}". Hãy bấm "Lấy đáp án từ tab" để thử ngay.`));
     } else {
@@ -218,9 +305,9 @@ function* startPickSaga(action) {
 
 // 2g) Ap dung / xoa selector tuy chinh (tu danh sach ung vien hoac tu go).
 function* applySelectorSaga(action) {
-  const { botId, selector, source } = action.payload || {};
+  const { botId, selector, source, fingerprint } = action.payload || {};
   if (!selector || !String(selector).trim()) return;
-  yield call(setCustomSelector, botId, String(selector).trim());
+  yield call(setCustomSelector, botId, String(selector).trim(), fingerprint || undefined);
   yield put(selectorApplied({ botId, selector: String(selector).trim(), source: source || 'tự nhập' }));
 }
 
@@ -318,10 +405,10 @@ function* copySynthesisPromptSaga() {
   const fullState = yield select();
   const lastRound = state.topic.mode === 'fast' ? 1 : 3;
   if (!selectRoundComplete(fullState, lastRound)) {
-    yield put(logAdded(`Chưa đủ đáp án vòng ${lastRound} — Muse chỉ tổng hợp SAU khi cả 4 bot đã xong. Bạn có thể mở tab Muse trước để đăng nhập sẵn.`));
+    yield put(logAdded(`Chưa đủ điều kiện tổng hợp: vòng ${lastRound} cần mọi bot đã Lưu hoặc Bỏ qua, với tối thiểu 2 đáp án đã lưu. Bạn có thể mở tab Muse trước để đăng nhập sẵn.`));
     return;
   }
-  const prompt = buildSynthesisPrompt({ topic: state.topic, answers: state.answers, contextText: state.files.contextText, synthBrief: state.coordinator?.synthBrief });
+  const prompt = buildSynthesisPrompt({ topic: state.topic, answers: state.answers, contextText: state.files.contextText, synthBrief: state.coordinator?.synthBrief, skips: skipsOf(state) });
   yield call(clipboardWrite, prompt);
   yield put(synthesisPromptCopied());
 }
@@ -471,6 +558,21 @@ function* refreshFilesSaga() {
   } catch (_) { /* bo qua */ }
 }
 
+// 3c) Sau khi nguoi dung bam BO QUA bot: ghi 1 dong vao tien-trinh.md (qua
+// fs:append-activity cua fsApi) + cap nhat phien.json (cells/geminiConsent).
+function* afterSkipSaga(action) {
+  const { botId, reason } = action.payload || {};
+  const fsx = getFs();
+  const state = yield select(selectCouncil);
+  const botName = BOT_BY_ID[botId]?.name || botId;
+  if (fsx?.appendActivity && state.files.sessionDir) {
+    try {
+      yield call(fsx.appendActivity, state.files.sessionDir, `BỎ QUA ${botName} ở vòng ${state.round}${reason ? ` — lý do: ${reason}` : ''}`);
+    } catch (_) { /* bo qua loi ghi file */ }
+  }
+  yield call(writeSnapshot);
+}
+
 // ---- Dieu phoi Gemini API ----
 // Moi action mang { apiKey, model } tu panel dieu phoi (key chi o panel,
 // saga khong luu key vao state/file). Loi API -> ghi nhat ky + panel bao loi,
@@ -492,10 +594,18 @@ function* geminiTestSaga(action) {
 }
 
 function* geminiClaimCardsSaga(action) {
+  const consentState = yield select(selectCouncil);
+  if (consentState.coordinator?.consent !== true) {
+    yield put(logAdded(consentState.coordinator?.consent === false
+      ? 'Điều phối Gemini API đang TẮT cho phiên này — hãy chạy thủ công bằng nguyên văn đáp án, hoặc mở phiên mới để bật lại.'
+      : 'Chưa gửi được lên Gemini API: hãy đọc và bấm "Đồng ý" ở hộp cảnh báo trong panel Điều phối Gemini API trước (chỉ hỏi 1 lần mỗi phiên).'));
+    return;
+  }
+
   const state = yield select(selectCouncil);
   const fullState = yield select();
   if (!selectRoundComplete(fullState, 1)) {
-    yield put(logAdded('Chưa tóm tắt được: cần đủ 4/4 đáp án vòng 1 trước.'));
+    yield put(logAdded('Chưa tóm tắt được: vòng 1 cần mọi bot đã Lưu hoặc Bỏ qua (tối thiểu 2 đã lưu) trước.'));
     return;
   }
   const result = yield call(geminiCall, action.payload, 'claimCards', buildClaimCardsPrompt({ topic: state.topic, answers: state.answers }));
@@ -507,6 +617,14 @@ function* geminiClaimCardsSaga(action) {
 }
 
 function* geminiFormCheckSaga(action) {
+  const consentState = yield select(selectCouncil);
+  if (consentState.coordinator?.consent !== true) {
+    yield put(logAdded(consentState.coordinator?.consent === false
+      ? 'Điều phối Gemini API đang TẮT cho phiên này — hãy chạy thủ công bằng nguyên văn đáp án, hoặc mở phiên mới để bật lại.'
+      : 'Chưa gửi được lên Gemini API: hãy đọc và bấm "Đồng ý" ở hộp cảnh báo trong panel Điều phối Gemini API trước (chỉ hỏi 1 lần mỗi phiên).'));
+    return;
+  }
+
   const state = yield select(selectCouncil);
   const round = state.round;
   const hasAny = Object.values(state.answers[round] || {}).some((c) => (c.answer || '').trim());
@@ -519,11 +637,19 @@ function* geminiFormCheckSaga(action) {
 }
 
 function* geminiSynthBriefSaga(action) {
+  const consentState = yield select(selectCouncil);
+  if (consentState.coordinator?.consent !== true) {
+    yield put(logAdded(consentState.coordinator?.consent === false
+      ? 'Điều phối Gemini API đang TẮT cho phiên này — hãy chạy thủ công bằng nguyên văn đáp án, hoặc mở phiên mới để bật lại.'
+      : 'Chưa gửi được lên Gemini API: hãy đọc và bấm "Đồng ý" ở hộp cảnh báo trong panel Điều phối Gemini API trước (chỉ hỏi 1 lần mỗi phiên).'));
+    return;
+  }
+
   const state = yield select(selectCouncil);
   const fullState = yield select();
   const lastRound = state.topic.mode === 'fast' ? 1 : 3;
   if (!selectRoundComplete(fullState, lastRound)) {
-    yield put(logAdded(`Chưa chuẩn bị gói tổng hợp được: cần đủ 4/4 đáp án vòng ${lastRound} trước.`));
+    yield put(logAdded(`Chưa chuẩn bị gói tổng hợp được: vòng ${lastRound} cần mọi bot đã Lưu hoặc Bỏ qua (tối thiểu 2 đã lưu) trước.`));
     return;
   }
   const result = yield call(geminiCall, action.payload, 'synthBrief', buildSynthBriefPrompt({ topic: state.topic, answers: state.answers }));
@@ -547,6 +673,7 @@ export default function* rootSaga() {
     takeEvery(applySelectorRequested.type, applySelectorSaga),
     takeEvery(clearSelectorRequested.type, clearSelectorSaga),
     takeEvery([answerPasted.type, saveAnswer.type], afterSaveSaga),
+    takeEvery(botSkipped.type, afterSkipSaga),
     takeEvery([synthesisAnswerPasted.type, synthesisSaved.type], afterSynthesisSaga),
     takeEvery(exportRequested.type, exportSaga),
     takeEvery(copySynthesisPromptRequested.type, copySynthesisPromptSaga),

@@ -139,3 +139,41 @@ button.big { padding: 10px 18px; font-size: 15px; }
 .mode-option input { margin-top: 3px; }
 .bot-card.drop-target { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35); background: #eff4ff; }
 .drop-hint { font-size: 12px; color: #8a8172; line-height: 1.4; }
+
+/* ===== V3: Next Action Bar (top bar) ===== */
+.next-action-bar { display:flex; align-items:center; gap:10px; padding:8px 14px; margin:8px 12px 0; border:1px solid var(--border, #d4d4d8); border-radius:10px; background:#eef6ff; font-size:14px; }
+.next-action-bar .next-action-label { font-weight:700; white-space:nowrap; }
+.next-action-bar .next-action-text { flex:1; }
+.next-action-bar.kind-error { background:#fdecec; }
+.next-action-bar.kind-review, .next-action-bar.kind-fetched, .next-action-bar.kind-blocked { background:#fff7e0; }
+.next-action-bar.kind-advance, .next-action-bar.kind-synthesis { background:#e8f9ee; }
+.next-action-btn { white-space:nowrap; }
+
+/* ===== V3: Confidence box trong o duyet ===== */
+.confidence-box { border:1px solid #d4d4d8; border-radius:10px; padding:8px 10px; margin:8px 0; font-size:13px; }
+.confidence-box.band-high { border-color:#22a06b; background:#f0fbf4; }
+.confidence-box.band-medium { border-color:#e0a800; background:#fffbe8; }
+.confidence-box.band-low { border-color:#d64545; background:#fdf0f0; }
+.confidence-head { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.confidence-note { opacity:.75; font-size:12px; }
+.confidence-bar { height:8px; border-radius:99px; background:#e4e4e7; overflow:hidden; margin:6px 0; }
+.confidence-bar > span { display:block; height:100%; background:#3b82f6; }
+.band-high .confidence-bar > span { background:#22a06b; }
+.band-medium .confidence-bar > span { background:#e0a800; }
+.band-low .confidence-bar > span { background:#d64545; }
+.confidence-reasons { margin:4px 0 0 16px; padding:0; }
+.confidence-warn { font-weight:600; }
+.low-candidates { margin:8px 0; }
+.integrity-error { border:1px solid #d64545; background:#fdf0f0; border-radius:10px; padding:8px 10px; margin:8px 0; font-size:13px; }
+.skip-note { border:1px dashed #a1a1aa; border-radius:10px; padding:8px 10px; margin:8px 0; font-size:13px; }
+.skip-zone { margin-top:8px; }
+.skip-confirm { border:1px solid #e0a800; background:#fffbe8; border-radius:10px; padding:8px 10px; font-size:13px; display:flex; flex-direction:column; gap:6px; }
+.file-exists-warn { color:#b45309; font-size:12px; font-weight:600; }
+
+/* ===== V3: Canh bao Gemini ===== */
+.gemini-consent { border:1px solid #e0a800; background:#fffbe8; border-radius:10px; padding:10px 12px; margin:10px 0; font-size:13.5px; }
+.gemini-consent.off { border-color:#a1a1aa; background:#f4f4f5; }
+.gemini-consent-title { font-weight:700; margin-bottom:4px; }
+
+/* Trang thai Skip tren the bot */
+.status-skipped { opacity:.75; text-decoration:line-through; }
