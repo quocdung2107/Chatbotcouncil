@@ -7,6 +7,7 @@ import {
   refreshFilesRequested, contextLoaded, contextCleared, recentFilesUpdated,
   historyUpdated, logAdded,
 } from '../store/councilSlice';
+import Badge from './Badge';
 
 // Panel "File & tien trinh": thu muc lam viec, file ngu canh, bang tien trinh
 // 4 bot x 3 vong tinh THEO FILE that trong thu muc phien (moi dap an = 1 file),
@@ -110,9 +111,9 @@ export default function FilesPanel() {
                       <td key={r} className={f ? 'pm-done' : 'pm-todo'}>
                         {f ? (
                           <button type="button" className="pm-cell" title={`${f.name} — ${fmtSize(f.size)}${f.lines ? `, ${f.lines} dòng` : ''} — ghi lúc ${fmtTime(f.mtime)}. Bấm để mở file.`} onClick={() => openPath(f.path)}>
-                            ✓ {new Date(f.mtime).toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit' })}
+                            <Badge status="SAVED" /> {new Date(f.mtime).toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit' })}
                           </button>
-                        ) : '—'}
+                        ) : <Badge status="NOT_READY" />}
                       </td>
                     );
                   })}
@@ -121,7 +122,7 @@ export default function FilesPanel() {
               <tr>
                 <td className="pm-bot">{SYNTH_BOT.name}</td>
                 <td colSpan={3} className={byName[SYNTH_FILE_NAME] ? 'pm-done' : 'pm-todo'}>
-                  {byName[SYNTH_FILE_NAME] ? `✓ Đã ghi ${SYNTH_FILE_NAME} lúc ${fmtTime(byName[SYNTH_FILE_NAME].mtime)}` : 'Chưa có kết luận tổng hợp'}
+                  {byName[SYNTH_FILE_NAME] ? <><Badge status="SAVED" /> Đã ghi {SYNTH_FILE_NAME} lúc {fmtTime(byName[SYNTH_FILE_NAME].mtime)}</> : <><Badge status="NOT_READY" /> Chưa có kết luận tổng hợp</>}
                 </td>
               </tr>
             </tbody>

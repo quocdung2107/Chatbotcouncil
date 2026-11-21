@@ -19,6 +19,37 @@ import RoundStepper from './components/RoundStepper';
 import FilesPanel from './components/FilesPanel';
 import GeminiPanel from './components/GeminiPanel';
 import NextActionBar from './components/NextActionBar';
+import { COMPARE_STORAGE_KEY } from './components/CompareView';
+
+// Mau chu de co san o man hinh bat dau: bam 1 lan la dien san Tieu de +
+// Muc tieu/boi canh + Tieu chi cham (nguoi dung sua lai theo y minh).
+const TOPIC_TEMPLATES = [
+  {
+    label: 'Đánh giá một ý tưởng kinh doanh',
+    title: 'Có nên triển khai ý tưởng kinh doanh này không?',
+    goal: 'Mục tiêu cần đạt: chốt có làm hay không và bước đi đầu tiên. Giới hạn/ràng buộc: vốn, thời gian, nhân lực hiện có. Điều đã thử: ghi ở đây nếu có.',
+    criteriaText: 'Có căn cứ kiểm chứng được\nKhả thi với nguồn lực hiện tại\nNêu rõ rủi ro lớn nhất',
+  },
+  {
+    label: 'So sánh để chọn giữa 2–3 phương án',
+    title: 'Nên chọn phương án A, B hay C cho vấn đề của tôi?',
+    goal: 'Mục tiêu cần đạt: chốt 1 phương án. Giới hạn/ràng buộc: ngân sách và hạn chót. Điều đã thử: ghi ở đây nếu có.',
+    criteriaText: 'So sánh mọi phương án trên cùng tiêu chí\nChốt 1 phương án, không liệt kê cả hai như nhau\nKế hoạch hành động làm được ngay',
+  },
+  {
+    label: 'Lập kế hoạch cho một dự án',
+    title: 'Lập kế hoạch triển khai dự án của tôi trong 30 ngày',
+    goal: 'Mục tiêu cần đạt: kết quả cụ thể sau 30 ngày. Giới hạn/ràng buộc: thời gian mỗi ngày và ngân sách. Điều đã thử: ghi ở đây nếu có.',
+    criteriaText: 'Chia bước theo tuần, mỗi bước có kết quả kiểm chứng được\nƯu tiên việc quan trọng nhất làm trước\nNêu rõ điểm có thể làm chậm tiến độ',
+  },
+];
+
+const PROCESS_PREVIEW = [
+  { icon: '📝', name: 'Vòng 1 — Mỗi bot tự đề xuất', note: '4 bot trả lời độc lập, chưa thấy bài của nhau' },
+  { icon: '💬', name: 'Vòng 2 — Bot nhận xét lẫn nhau', note: 'Mỗi bot chấm bài của bot khác, không hiện tên tác giả' },
+  { icon: '✏️', name: 'Vòng 3 — Mỗi bot sửa lại bài của mình', note: 'Tác giả đọc nhận xét rồi chốt bản cuối' },
+  { icon: '🧭', name: 'Tổng hợp — Muse kết luận', note: 'Muse đọc cả 4 bản cuối và chốt kết luận chung' },
+];
 
 export default function App() {
   const dispatch = useDispatch();
@@ -31,12 +62,21 @@ export default function App() {
   };
   const totalSaved = useSelector(selectTotalSavedCount);
   const browserRef = useRef(null);
-  // Bot nao dang mo DIALOG thao tac (doc lap voi tab dang chon — dong dialog
-  // khong lam mat tab dang hien).
+  // Bot dang duoc chon cho VUNG THAO TAC GHIM (doc lap voi tab trang web
+  // dang chon — doi bot chi doi noi dung vung ghim, khong day noi dung xuong).
   const [dialogBotId, setDialogBotId] = useState('');
+  // Tab cua sidebar: thao tac | tep | dieu phoi (Gemini). Mac dinh Thao tac.
+  const [sidebarTab, setSidebarTab] = useState('actions');
   // Dang chay trong Electron (co window.councilApi) hay trinh duyet thuong?
   // Trinh duyet thuong khong nhung duoc chatbot — phai co nut mo tab that.
   const isElectron = typeof window !== 'undefined' && !!window.councilApi;
+  const consentPending = council.coordinator?.consent === null;
+
+  // Vua vao phien (hoac doi vong) ma chua chon bot cho vung ghim thi mac
+  // dinh chon bot dang active de nguoi dung thay ngay buoc can lam.
+  useEffect(() => {
+    if (phase !== 'setup' && !dialogBotId) setDialogBotId(activeBotId || 'chatgpt');
+  }, [phase, dialogBotId, activeBotId]);
 
   // Dong bo vi tri/kich thuoc cua khu vuc trinh duyet cho Electron main,
   // de cac WebContentsView nam dung cho tren giao dien React.
@@ -140,6 +180,97 @@ export default function App() {
     }
   };
 
+  // SO SANH DAP AN: gom cac dap an DA LUU cua vong hien tai, ghi vao
+  // localStorage roi mo cua so Electron rieng (?compare=1). Nut chi bat khi
+  // da luu tu 2 dap an trong vong nay.
+  const savedThisRound = BOTS.filter((b) => answers[round]?.[b.id]?.status === STATUS.saved);
+  const compareEnabled = savedThisRound.length >= 2;
+  const openCompare = () => {
+    if (!compareEnabled) return;
+    const payload = {
+      round,
+      topic: topic.title,
+      items: savedThisRound.map((b) => ({
+        id: b.id,
+        name: b.name,
+        answer: answers[round][b.id].answer || '',
+        confidence: answers[round][b.id].confidence != null ? answers[round][b.id].confidence : null,
+      })),
+    };
+    try { localStorage.setItem(COMPARE_STORAGE_KEY, JSON.stringify(payload)); } catch (_) { /* bo qua */ }
+    if (window.councilApi?.openCompare) window.councilApi.openCompare();
+    else window.open('?compare=1', '_blank');
+  };
+
+  const applyTemplate = (t) => {
+    dispatch(topicChanged({ field: 'title', value: t.title }));
+    dispatch(topicChanged({ field: 'goal', value: t.goal }));
+    dispatch(topicChanged({ field: 'criteriaText', value: t.criteriaText }));
+  };
+
+  // Vung thao tac ghim cho bot dang chon (4 bot tranh luan hoac Muse).
+  const renderPinnedDialog = () => {
+    if (dialogBotId === 'muse') {
+      return (
+        <BotDialog
+          bot={SYNTH_BOT}
+          cell={synthesis || { status: STATUS.idle, answer: '' }}
+          synth
+          browserMode={!isElectron}
+          onCopy={() => dispatch(copySynthesisPromptRequested())}
+          onFillComposer={() => dispatch(fillSynthesisComposerRequested())}
+          onSent={() => dispatch(synthesisMarkSent())}
+          onFetch={() => dispatch(fetchSynthesisAnswerRequested())}
+          onPaste={() => dispatch(pasteSynthesisAnswerRequested())}
+          onSave={() => dispatch(synthesisSaved())}
+          onEdit={(value) => dispatch(synthesisAnswerEdited(value))}
+          onReload={() => apiCall('reloadBot', 'muse')}
+          onNewSession={() => apiCall('newSession', 'muse')}
+          candidates={extractUi?.candidates?.muse || []}
+          picking={extractUi?.picking || ''}
+          round={round}
+          onApplySelector={(selector, source, fingerprint) => dispatch(applySelectorRequested({ botId: 'muse', selector, source, fingerprint }))}
+          onClearSelector={() => dispatch(clearSelectorRequested('muse'))}
+          onClose={() => setDialogBotId('')}
+        />
+      );
+    }
+    const bot = BOTS.find((b) => b.id === dialogBotId);
+    if (!bot) {
+      return <div className="pinned-empty">Bấm vào 1 thẻ bot ở trên để mở vùng thao tác của bot đó tại đây.</div>;
+    }
+    return (
+      <BotDialog
+        bot={bot}
+        cell={answers[round][bot.id]}
+        browserMode={!isElectron}
+        onCopy={() => dispatch(copyPromptRequested(bot.id))}
+        onFillComposer={() => dispatch(fillComposerRequested(bot.id))}
+        onSent={() => dispatch(markSent(bot.id))}
+        onFetch={() => dispatch(fetchAnswerRequested(bot.id))}
+        onPaste={() => dispatch(pasteAnswerRequested(bot.id))}
+        onSave={() => dispatch(saveAnswer(bot.id))}
+        onEdit={(value) => dispatch(answerEdited({ botId: bot.id, answer: value }))}
+        onReload={() => apiCall('reloadBot', bot.id)}
+        onNewSession={() => apiCall('newSession', bot.id)}
+        candidates={extractUi?.candidates?.[bot.id] || []}
+        picking={extractUi?.picking || ''}
+        round={round}
+        onSkip={(reason) => dispatch(botSkipped({ botId: bot.id, reason }))}
+        integrityError={integrityError}
+        lowCandidates={extractUi?.lowCandidates?.[bot.id] || []}
+        fileExists={(council.files?.sessionFiles || []).some((f) => f.name === sessionFileName(bot.id, round))}
+        onScan={() => dispatch(scanCandidatesRequested(bot.id))}
+        onStartPick={() => dispatch(startPickRequested(bot.id))}
+        onApplySelector={(selector, source, fingerprint) => dispatch(applySelectorRequested({ botId: bot.id, selector, source, fingerprint }))}
+        onClearSelector={() => dispatch(clearSelectorRequested(bot.id))}
+        onClose={() => setDialogBotId('')}
+      />
+    );
+  };
+
+  const openBot = (botId) => { dispatch(selectBot(botId)); setDialogBotId(botId); setSidebarTab('actions'); };
+
   return (
     <div
       className="app"
@@ -157,7 +288,7 @@ export default function App() {
             <>
               <div className="mode-toggle">
                 <button type="button" className={viewMode === 'tabs' ? 'on' : ''} onClick={() => dispatch(setViewMode('tabs'))}>1 tab</button>
-                <button type="button" className={viewMode === 'grid' ? 'on' : ''} onClick={() => dispatch(setViewMode('grid'))}>Lưới 4 ô</button>
+                <button type="button" className={viewMode === 'grid' ? 'on' : ''} onClick={() => dispatch(setViewMode('grid'))}>Xem 4 trang cùng lúc</button>
               </div>
               <button type="button" onClick={() => dispatch(exportRequested())}>Xuất kết quả</button>
               <button type="button" onClick={() => { if (window.confirm('Bắt đầu chủ đề mới? Toàn bộ đáp án hiện tại sẽ bị xoá.')) dispatch(resetAll()); }}>Chủ đề mới</button>
@@ -166,10 +297,31 @@ export default function App() {
         </div>
       </header>
 
-      {phase !== 'setup' && <RoundStepper round={round} savedCounts={savedCounts} phase={phase} synthesisSaved={synthesis?.status === STATUS.saved} mode={topic.mode} />}
+      {phase !== 'setup' && (
+        <RoundStepper
+          round={round}
+          savedCounts={savedCounts}
+          phase={phase}
+          synthesisSaved={synthesis?.status === STATUS.saved}
+          mode={topic.mode}
+          answers={answers}
+          synthesis={synthesis}
+        />
+      )}
 
       {phase !== 'setup' && (
-        <NextActionBar onOpenBot={(botId) => { dispatch(selectBot(botId)); setDialogBotId(botId); }} />
+        <div className="action-row">
+          <NextActionBar onOpenBot={openBot} />
+          <button
+            type="button"
+            className="compare-btn"
+            disabled={!compareEnabled}
+            onClick={openCompare}
+            title={compareEnabled ? 'Mở cửa sổ riêng xem các đáp án đã lưu của vòng này cạnh nhau' : 'Cần ít nhất 2 đáp án ĐÃ LƯU trong vòng hiện tại mới so sánh được'}
+          >
+            📊 So sánh đáp án
+          </button>
+        </div>
       )}
 
       <div className="main-row">
@@ -178,47 +330,73 @@ export default function App() {
             <h1>Tạo chủ đề hội đồng mới</h1>
             <p className="setup-note">
               4 chatbot miễn phí (ChatGPT, Claude, Gemini, Copilot) sẽ thảo luận 3 vòng:
-              đề xuất mù → phản biện chéo ẩn danh → tác giả sửa bài. Sau vòng 3, tab
-              Muse (đăng nhập bằng tài khoản Muse của bạn) sẽ đọc cả 4 bản cuối và
-              chốt KẾT LUẬN TỔNG HỢP cuối cùng. Bạn là người dán prompt,
-              bấm Gửi và copy đáp án về — app lo phần prompt, form và trạng thái.
+              mỗi bot tự đề xuất → các bot nhận xét lẫn nhau (không hiện tên) → mỗi bot sửa lại bài của mình.
+              Sau vòng 3, tab Muse (đăng nhập bằng tài khoản Muse của bạn) sẽ đọc cả 4 bản cuối và
+              chốt KẾT LUẬN TỔNG HỢP cuối cùng. Bạn là người dán lời nhắc,
+              bấm Gửi và lấy đáp án về — app lo phần lời nhắc, form và trạng thái.
             </p>
-            <label>Chủ đề *
-              <input
-                value={topic.title}
-                onChange={(e) => dispatch(topicChanged({ field: 'title', value: e.target.value }))}
-                placeholder="Ví dụ: Nên chọn hướng A hay B cho sản phẩm X?"
-              />
-            </label>
-            <label>Mục tiêu chung
-              <input
-                value={topic.goal}
-                onChange={(e) => dispatch(topicChanged({ field: 'goal', value: e.target.value }))}
-                placeholder="Để trống thì dùng luôn chủ đề làm mục tiêu"
-              />
-            </label>
-            <label>Tiêu chí chấm (mỗi dòng 1 tiêu chí)
-              <textarea
-                rows={4}
-                value={topic.criteriaText}
-                onChange={(e) => dispatch(topicChanged({ field: 'criteriaText', value: e.target.value }))}
-                placeholder={'Đúng trọng tâm\nCó căn cứ kiểm chứng được\nKhả thi với nguồn lực hiện tại'}
-              />
-            </label>
-            <div className="mode-picker">
-              <div className="mode-picker-title">Chế độ thảo luận</div>
-              <label className="mode-option">
-                <input type="radio" name="council-mode" checked={topic.mode !== 'fast'} onChange={() => dispatch(topicChanged({ field: 'mode', value: 'deep' }))} />
-                <span><strong>3 vòng đầy đủ</strong> (mặc định, khuyên dùng) — đề xuất mù → phản biện chéo ẩn danh → sửa bài. Chất lượng cao nhất cho chủ đề khó.</span>
-              </label>
-              <label className="mode-option">
-                <input type="radio" name="council-mode" checked={topic.mode === 'fast'} onChange={() => dispatch(topicChanged({ field: 'mode', value: 'fast' }))} />
-                <span><strong>1 lượt nối tiếp</strong> (chỉ dùng cho chủ đề dễ) — bot sau đọc bài bot trước rồi bổ sung/sửa, xong sang tổng hợp ngay. Nhanh hơn nhưng mất phần phản biện chéo.</span>
-              </label>
+            <div className="setup-grid">
+              <div className="setup-form">
+                <label>Chủ đề *
+                  <input
+                    value={topic.title}
+                    onChange={(e) => dispatch(topicChanged({ field: 'title', value: e.target.value }))}
+                    placeholder="Ví dụ: Nên chọn hướng A hay B cho sản phẩm X?"
+                  />
+                </label>
+                <label>Mục tiêu / bối cảnh
+                  <input
+                    value={topic.goal}
+                    onChange={(e) => dispatch(topicChanged({ field: 'goal', value: e.target.value }))}
+                    placeholder="Nêu: mục tiêu cần đạt · giới hạn/ràng buộc · điều đã thử"
+                  />
+                </label>
+                <label>Tiêu chí chấm (mỗi dòng 1 tiêu chí)
+                  <textarea
+                    rows={4}
+                    value={topic.criteriaText}
+                    onChange={(e) => dispatch(topicChanged({ field: 'criteriaText', value: e.target.value }))}
+                    placeholder={'Đúng trọng tâm\nCó căn cứ kiểm chứng được\nKhả thi với nguồn lực hiện tại'}
+                  />
+                </label>
+                <div className="mode-picker">
+                  <div className="mode-picker-title">Chế độ thảo luận</div>
+                  <label className="mode-option">
+                    <input type="radio" name="council-mode" checked={topic.mode !== 'fast'} onChange={() => dispatch(topicChanged({ field: 'mode', value: 'deep' }))} />
+                    <span><strong>3 vòng đầy đủ</strong> (mặc định, khuyên dùng) — mỗi bot tự đề xuất → nhận xét lẫn nhau → sửa bài. Chất lượng cao nhất cho chủ đề khó.</span>
+                  </label>
+                  <label className="mode-option">
+                    <input type="radio" name="council-mode" checked={topic.mode === 'fast'} onChange={() => dispatch(topicChanged({ field: 'mode', value: 'fast' }))} />
+                    <span><strong>1 lượt nối tiếp</strong> (chỉ dùng cho chủ đề dễ) — bot sau đọc bài bot trước rồi bổ sung/sửa, xong sang tổng hợp ngay. Nhanh hơn nhưng mất phần nhận xét chéo.</span>
+                  </label>
+                </div>
+                <button type="button" className="primary big" disabled={!topic.title.trim()} onClick={() => dispatch(startSession())}>
+                  Bắt đầu phiên hội đồng
+                </button>
+              </div>
+              <div className="setup-side">
+                <div className="setup-side-title">Quy trình 4 bước của phiên</div>
+                <div className="setup-preview">
+                  {PROCESS_PREVIEW.map((p, i) => (
+                    <React.Fragment key={p.name}>
+                      <div className="preview-step">
+                        <span className="preview-icon" aria-hidden="true">{p.icon}</span>
+                        <span><strong>{p.name}</strong><br /><span className="preview-note">{p.note}</span></span>
+                      </div>
+                      {i < PROCESS_PREVIEW.length - 1 && <div className="preview-arrow" aria-hidden="true">↓</div>}
+                    </React.Fragment>
+                  ))}
+                </div>
+                <div className="setup-side-title">Mẫu chủ đề có sẵn — bấm để điền sẵn</div>
+                <div className="template-list">
+                  {TOPIC_TEMPLATES.map((t) => (
+                    <button key={t.label} type="button" className="template-btn" onClick={() => applyTemplate(t)}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-            <button type="button" className="primary big" disabled={!topic.title.trim()} onClick={() => dispatch(startSession())}>
-              Bắt đầu phiên hội đồng
-            </button>
             <FilesPanel />
             <GeminiPanel />
           </section>
@@ -229,111 +407,76 @@ export default function App() {
                 {isElectron
                   ? (viewMode === 'tabs'
                     ? `Đang hiển thị tab của ${[...BOTS, SYNTH_BOT].find((b) => b.id === activeBotId)?.name}. Lần đầu dùng, hãy đăng nhập ngay trong tab này — app sẽ nhớ đăng nhập cho lần sau.`
-                    : 'Đang hiển thị cả 4 chatbot trong lưới 2×2. Bấm vào thẻ bot ở cột phải để làm việc với từng bot. Tab Muse (tổng hợp) chỉ hiện ở chế độ 1 tab.')
+                    : 'Đang hiển thị cả 4 chatbot cùng lúc. Bấm vào thẻ bot ở cột phải để làm việc với từng bot. Tab Muse (tổng hợp) chỉ hiện ở chế độ 1 tab.')
                   : (
                     <div className="open-bots">
-                      <p><strong>Bạn đang chạy giao diện bằng trình duyệt thường</strong> nên các chatbot không nhúng trong khung này được (chỉ bản app Electron mới nhúng được, mà bản đó đang bị Cloudflare chặn ở bước xác thực). Hãy bấm nút của từng chatbot để mở tab thật, đăng nhập ngay trong tab đó:</p>
+                      <p><strong>Bạn đang chạy giao diện bằng trình duyệt thường</strong> nên các chatbot không nhúng trong khung này được (chỉ bản app Electron mới nhúng được). Hãy bấm nút của từng chatbot để mở tab thật, đăng nhập ngay trong tab đó:</p>
                       <div className="open-bots-row">
                         {[...BOTS, SYNTH_BOT].map((b) => (
                           <a key={b.id} className="open-bot-btn" href={b.url} target="_blank" rel="noreferrer">Mở {b.name} ↗</a>
                         ))}
                       </div>
-                      <p>Luồng làm việc: bấm “Copy prompt” ở thẻ bot bên phải → sang tab chatbot vừa mở, dán (Ctrl+V) và bấm Gửi → copy đáp án → quay lại đây bấm “Dán đáp án về”. Panel này giữ prompt, form, trạng thái và tự chuyển vòng cho bạn.</p>
+                      <p>Luồng làm việc: bấm “Sao chép lời nhắc” ở vùng thao tác bên phải → sang tab chatbot vừa mở, dán (Ctrl+V) và bấm Gửi → copy đáp án → quay lại đây bấm “Dán câu trả lời về”. Panel này giữ lời nhắc, form, trạng thái và tự chuyển vòng cho bạn.</p>
                     </div>
                   )}
               </div>
             </section>
 
             <aside className="sidebar">
-              <div className="sidebar-title">Vòng {round} — thao tác cho từng bot</div>
-              {BOTS.map((bot) => (
-                <React.Fragment key={bot.id}>
-                  <BotCard
-                    bot={bot}
-                    cell={answers[round][bot.id]}
-                    isActive={activeBotId === bot.id}
-                    onSelect={() => { dispatch(selectBot(bot.id)); setDialogBotId(bot.id); }}
-                    onDropFile={handleBotDrop}
-                  />
-                  {dialogBotId === bot.id && (
-                    <BotDialog
-                      bot={bot}
-                      cell={answers[round][bot.id]}
-                      browserMode={!isElectron}
-                      onCopy={() => dispatch(copyPromptRequested(bot.id))}
-                      onFillComposer={() => dispatch(fillComposerRequested(bot.id))}
-                      onSent={() => dispatch(markSent(bot.id))}
-                      onFetch={() => dispatch(fetchAnswerRequested(bot.id))}
-                      onPaste={() => dispatch(pasteAnswerRequested(bot.id))}
-                      onSave={() => dispatch(saveAnswer(bot.id))}
-                      onEdit={(value) => dispatch(answerEdited({ botId: bot.id, answer: value }))}
-                      onReload={() => apiCall('reloadBot', bot.id)}
-                      onNewSession={() => apiCall('newSession', bot.id)}
-                      candidates={extractUi?.candidates?.[bot.id] || []}
-                      picking={extractUi?.picking || ''}
-                      round={round}
-                      onSkip={(reason) => dispatch(botSkipped({ botId: bot.id, reason }))}
-                      integrityError={integrityError}
-                      lowCandidates={extractUi?.lowCandidates?.[bot.id] || []}
-                      fileExists={(council.files?.sessionFiles || []).some((f) => f.name === sessionFileName(bot.id, round))}
-                      onScan={() => dispatch(scanCandidatesRequested(bot.id))}
-                      onStartPick={() => dispatch(startPickRequested(bot.id))}
-                      onApplySelector={(selector, source, fingerprint) => dispatch(applySelectorRequested({ botId: bot.id, selector, source, fingerprint }))}
-                      onClearSelector={() => dispatch(clearSelectorRequested(bot.id))}
-                      onClose={() => setDialogBotId('')}
-                    />
-                  )}
-                </React.Fragment>
-              ))}
+              <div className="sidebar-tabs" role="tablist" aria-label="Các khu vực của cột thao tác">
+                <button type="button" role="tab" aria-selected={sidebarTab === 'actions'} className={sidebarTab === 'actions' ? 'on' : ''} onClick={() => setSidebarTab('actions')}>🎯 Thao tác</button>
+                <button type="button" role="tab" aria-selected={sidebarTab === 'files'} className={sidebarTab === 'files' ? 'on' : ''} onClick={() => setSidebarTab('files')}>📁 Tệp</button>
+                <button type="button" role="tab" aria-selected={sidebarTab === 'gemini'} className={sidebarTab === 'gemini' ? 'on' : ''} onClick={() => setSidebarTab('gemini')}>
+                  🤖 Điều phối{consentPending && <span className="tab-dot" title="Chưa xử lý cảnh báo gửi nội dung lên Gemini API" aria-label="Chưa xử lý cảnh báo Gemini" />}
+                </button>
+              </div>
 
-              <div className="sidebar-title">Bước cuối — Tổng hợp (sau vòng 3)</div>
-              <BotCard
-                bot={SYNTH_BOT}
-                cell={synthesis || { status: STATUS.idle, answer: '' }}
-                isActive={activeBotId === 'muse'}
-                onSelect={() => { dispatch(selectBot('muse')); setDialogBotId('muse'); }}
-                onDropFile={handleBotDrop}
-              />
-              {dialogBotId === 'muse' && (
-                <BotDialog
-                  bot={SYNTH_BOT}
-                  cell={synthesis || { status: STATUS.idle, answer: '' }}
-                  synth
-                  browserMode={!isElectron}
-                  onCopy={() => dispatch(copySynthesisPromptRequested())}
-                  onFillComposer={() => dispatch(fillSynthesisComposerRequested())}
-                  onSent={() => dispatch(synthesisMarkSent())}
-                  onFetch={() => dispatch(fetchSynthesisAnswerRequested())}
-                  onPaste={() => dispatch(pasteSynthesisAnswerRequested())}
-                  onSave={() => dispatch(synthesisSaved())}
-                  onEdit={(value) => dispatch(synthesisAnswerEdited(value))}
-                  onReload={() => apiCall('reloadBot', 'muse')}
-                  onNewSession={() => apiCall('newSession', 'muse')}
-                  candidates={extractUi?.candidates?.muse || []}
-                  picking={extractUi?.picking || ''}
-                  round={round}
-                  onApplySelector={(selector, source, fingerprint) => dispatch(applySelectorRequested({ botId: 'muse', selector, source, fingerprint }))}
-                  onClearSelector={() => dispatch(clearSelectorRequested('muse'))}
-                  onClose={() => setDialogBotId('')}
-                />
+              {sidebarTab === 'actions' && (
+                <div className="tab-actions">
+                  <div className="bot-list">
+                    <div className="sidebar-title">Vòng {round} — thao tác cho từng bot</div>
+                    {BOTS.map((bot) => (
+                      <BotCard
+                        key={bot.id}
+                        bot={bot}
+                        cell={answers[round][bot.id]}
+                        isActive={dialogBotId === bot.id}
+                        onSelect={() => openBot(bot.id)}
+                        onDropFile={handleBotDrop}
+                      />
+                    ))}
+                    <div className="sidebar-title">Tổng hợp</div>
+                    <BotCard
+                      bot={SYNTH_BOT}
+                      cell={synthesis || { status: STATUS.idle, answer: '' }}
+                      isActive={dialogBotId === 'muse'}
+                      onSelect={() => openBot('muse')}
+                      onDropFile={handleBotDrop}
+                    />
+                  </div>
+                  <div className="pinned-area">
+                    {renderPinnedDialog()}
+                  </div>
+                </div>
               )}
 
-              <FilesPanel />
+              {sidebarTab === 'files' && (
+                <div className="tab-scroll">
+                  <FilesPanel />
+                </div>
+              )}
 
-              <GeminiPanel />
+              {sidebarTab === 'gemini' && (
+                <div className="tab-scroll">
+                  <GeminiPanel />
+                </div>
+              )}
             </aside>
           </>
         )}
       </div>
 
       <LogPanel log={log} />
-
-      {phase === 'synthesis' && (
-        <div className="done-banner">🧭 Đã đủ 3 vòng — giờ tới bước TỔNG HỢP: chọn thẻ “Muse — Tổng hợp” ở cột phải, copy prompt tổng hợp, dán vào tab Muse và bấm Gửi, rồi dán kết luận về.</div>
-      )}
-      {phase === 'done' && (
-        <div className="done-banner">✅ Đã có kết luận tổng hợp của Muse. Bấm “Xuất kết quả” ở góc phải trên để lưu toàn bộ đáp án + kết luận thành file Markdown.</div>
-      )}
     </div>
   );
 }

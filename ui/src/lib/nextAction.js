@@ -79,7 +79,7 @@ export function computeNextAction({ cells, round, botOrder, phase } = {}) {
   }
   const readyBot = byStatus(CELL_STATUS.PROMPT_READY) || byStatus(CELL_STATUS.FILLED);
   if (readyBot) {
-    return { kind: 'prompt_ready', botId: readyBot.id, text: `${readyBot.name} — Vòng ${round}: bấm Dán prompt vào ô nhập, rồi tự bấm Gửi trong trang chatbot.` };
+    return { kind: 'prompt_ready', botId: readyBot.id, text: `${readyBot.name} — Vòng ${round}: bấm Dán lời nhắc vào trang, rồi tự bấm Gửi trong trang chatbot.` };
   }
 
   const closure = roundClosure(cells, order.map((b) => b.id));
@@ -95,14 +95,14 @@ export function computeNextAction({ cells, round, botOrder, phase } = {}) {
 
   const waitingBot = byStatus(CELL_STATUS.WAITING);
   if (waitingBot) {
-    return { kind: 'working', botId: waitingBot.id, text: `${waitingBot.name} — Vòng ${round} đang chờ bot trả lời. Khi bot gõ xong, bấm "Lấy đáp án từ tab" trong dialog của bot.` };
+    return { kind: 'working', botId: waitingBot.id, text: `${waitingBot.name} — Vòng ${round} đang chờ bot trả lời. Khi bot gõ xong, bấm "Lấy câu trả lời về" ở bước ③ trong vùng thao tác của bot.` };
   }
   const firstPending = order.find((b) => {
     const st = cells?.[b.id]?.status || deriveCellStatus(cells?.[b.id]);
     return st !== CELL_STATUS.SAVED && st !== CELL_STATUS.SKIPPED;
   });
   if (firstPending) {
-    return { kind: 'prompt_ready', botId: firstPending.id, text: `${firstPending.name} — Vòng ${round}: mở dialog của bot để copy/dán prompt vòng này.` };
+    return { kind: 'prompt_ready', botId: firstPending.id, text: `${firstPending.name} — Vòng ${round}: mở vùng thao tác của bot để dán lời nhắc vòng này.` };
   }
   return { kind: 'idle', botId: '', text: 'Chưa có việc nào đang chờ.' };
 }

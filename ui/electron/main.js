@@ -204,6 +204,38 @@ ipcMain.handle('views:new-session', (_e, botId) => {
   if (bot) getOrCreateView(bot).webContents.loadURL(bot.url);
   return true;
 });
+// ---- Cua so SO SANH DAP AN (ban lam lai UI): BrowserWindow RIENG tai cung
+// renderer voi ?compare=1, doc du lieu tu localStorage do App chinh ghi.
+// Khong an WebContentsView, khong de len vung trang web nhung.
+let compareWin = null;
+ipcMain.handle('compare:open', () => {
+  if (compareWin && !compareWin.isDestroyed()) { compareWin.focus(); return true; }
+  compareWin = new BrowserWindow({
+    width: 1280,
+    height: 860,
+    minWidth: 760,
+    minHeight: 520,
+    title: 'So sánh đáp án — Hội Đồng',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  const isDev = process.argv.includes('--dev');
+  if (isDev) {
+    compareWin.loadURL('http://localhost:5173/?compare=1');
+  } else {
+    compareWin.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { compare: '1' } });
+  }
+  compareWin.on('closed', () => { compareWin = null; });
+  return true;
+});
+ipcMain.handle('compare:set-on-top', (_e, flag) => {
+  if (compareWin && !compareWin.isDestroyed()) compareWin.setAlwaysOnTop(!!flag);
+  return true;
+});
 ipcMain.handle('clipboard:write', (_e, text) => { clipboard.writeText(String(text ?? '')); return true; });
 ipcMain.handle('clipboard:read', () => clipboard.readText());
 ipcMain.handle('file:save-text', async (_e, { filename, content }) => {

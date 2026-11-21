@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('councilApi', {
   pollPick: (botId) => ipcRenderer.invoke('views:poll-pick', botId),
   fillComposer: (botId, text) => ipcRenderer.invoke('views:fill-composer', botId, text),
   newSession: (botId) => ipcRenderer.invoke('views:new-session', botId),
+  openCompare: () => ipcRenderer.invoke('compare:open'),
+  setCompareOnTop: (flag) => ipcRenderer.invoke('compare:set-on-top', !!flag),
   clipboardWrite: (text) => ipcRenderer.invoke('clipboard:write', text),
   clipboardRead: () => ipcRenderer.invoke('clipboard:read'),
   saveTextFile: (filename, content) => ipcRenderer.invoke('file:save-text', { filename, content }),
