@@ -303,3 +303,27 @@ button.big { padding: 10px 18px; font-size: 15px; }
 .compare-bot { font-weight: 800; font-size: 15px; margin-right: auto; }
 .compare-meta { padding: 0 12px 8px; font-size: 12.5px; color: #6f675a; border-bottom: 1px dashed #eee7d6; }
 .compare-body { flex: 1; overflow-y: auto; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; font-size: 15px; line-height: 1.6; }
+
+/* ===== THONG BAO DON GIAN (thay thanh Viec tiep theo) ===== */
+.simple-notice { border: 1px solid #d8d1bf; border-radius: 10px; background: #fbf9f3; padding: 8px 12px; font-size: 14px; line-height: 1.5; }
+.simple-notice-line.muted { color: #6f675a; }
+.simple-notice-line.warn { color: #b45309; font-weight: 600; }
+.simple-notice.done { background: #dff3e2; border-color: #22a06b; font-weight: 700; }
+
+/* ===== TAO PHIEN BANG TRO CHUYEN VOI THU KY ===== */
+.session-chat { background: #fffdf8; border: 1px solid #bcd3f7; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.chat-messages { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; padding: 4px; }
+.chat-msg { max-width: 85%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.chat-msg.secretary { align-self: flex-start; background: #eef4ff; border: 1px solid #c7dbfa; border-bottom-left-radius: 4px; }
+.chat-msg.secretary.muted { color: #6f675a; font-style: italic; }
+.chat-msg.user { align-self: flex-end; background: #e8f9ee; border: 1px solid #bfe6cc; border-bottom-right-radius: 4px; }
+.chat-input-row { display: flex; gap: 8px; }
+.chat-input-row input { flex: 1; }
+.chat-draft-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px dashed #d8d1bf; padding-top: 10px; }
+.chat-draft-summary { flex: 1; min-width: 220px; font-size: 14px; }
+.chat-draft-summary .muted { color: #6f675a; }
+
+/* ===== MUC TAO PHIEN THU CONG (thu gon) ===== */
+.manual-setup { margin-top: 14px; border: 1px solid #e3ddca; border-radius: 12px; padding: 10px 12px; background: #fcfaf4; }
+.manual-setup > summary { cursor: pointer; font-weight: 700; font-size: 14.5px; padding: 2px 0; }
+.manual-setup[open] > summary { margin-bottom: 10px; }

@@ -19,7 +19,8 @@ import RoundStepper from './components/RoundStepper';
 import FilesPanel from './components/FilesPanel';
 import GeminiPanel from './components/GeminiPanel';
 import TopicSecretary from './components/TopicSecretary';
-import NextActionBar from './components/NextActionBar';
+import SimpleNotice from './components/SimpleNotice';
+import SessionChat from './components/SessionChat';
 import { COMPARE_STORAGE_KEY } from './components/CompareView';
 
 // Mau chu de co san o man hinh bat dau: bam 1 lan la dien san Tieu de +
@@ -329,6 +330,9 @@ export default function App() {
               chốt KẾT LUẬN TỔNG HỢP cuối cùng. Bạn là người dán lời nhắc,
               bấm Gửi và lấy đáp án về — app lo phần lời nhắc, form và trạng thái.
             </p>
+            <SessionChat />
+            <details className="manual-setup">
+              <summary>⚙ Tạo phiên thủ công (đầy đủ tuỳ chọn)</summary>
             <div className="setup-grid">
               <div className="setup-form">
                 <label>Chủ đề *
@@ -392,6 +396,7 @@ export default function App() {
               </div>
             </div>
             <TopicSecretary />
+            </details>
             <FilesPanel />
             <GeminiPanel />
           </section>
@@ -473,7 +478,7 @@ export default function App() {
 
             <aside className="right-panel">
               <div className="action-stack">
-                <NextActionBar onOpenBot={openBot} />
+                <SimpleNotice />
                 <button
                   type="button"
                   className="compare-btn"

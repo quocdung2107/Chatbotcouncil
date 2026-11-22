@@ -60,24 +60,136 @@ export async function callGemini({ apiKey, model, prompt }) {
   }
 }
 
-export function buildClaimCardsPrompt({ topic, answers }) {
-  const texts = BOTS
-    .map((b) => `--- BÀI VÒNG 1 CỦA ${b.name.toUpperCase()} (mã nội bộ: ${b.id}) ---\n${(answers[1]?.[b.id]?.answer || '').trim()}`)
+// Bot "con bai" cua vong 1: khong bi Skip va co dap an da luu. Thu tu luon
+// la thu tu co dinh trong BOTS — ca prompt, parser va ham lap the deu dua
+// vao cung thu tu nay nen khong bao gio lech nhau.
+export function activeRound1Bots(answers, skippedIds = []) {
+  return BOTS.filter((b) => !skippedIds.includes(b.id) && (answers?.[1]?.[b.id]?.answer || '').trim());
+}
+
+export function buildClaimCardsPrompt({ topic, answers, botIds }) {
+  const active = botIds && botIds.length
+    ? BOTS.filter((b) => botIds.includes(b.id))
+    : activeRound1Bots(answers);
+  const texts = active
+    .map((b, i) => `--- THẺ ${i + 1} — BÀI VÒNG 1 CỦA ${b.name.toUpperCase()} ---\n${(answers[1]?.[b.id]?.answer || '').trim()}`)
     .join('\n\n');
   return `Bạn là ĐIỀU PHỐI VIÊN của một hội đồng thảo luận, không phải thành viên tranh luận. Chủ đề: "${topic.title}". Mục tiêu: ${(topic.goal || '').trim() || topic.title}.
 
-Dưới đây là 4 bài vòng 1. Hãy rút mỗi bài thành MỘT THẺ LUẬN ĐIỂM gọn theo đúng mẫu sau, giữ nguyên ý chính và căn cứ quan trọng nhất, bỏ ví dụ dài và câu chữ thừa. Mỗi thẻ tối đa 130 chữ.
+Dưới đây là ${active.length} bài vòng 1, đánh số THẺ 1 đến THẺ ${active.length} theo đúng thứ tự. Hãy rút mỗi bài thành MỘT THẺ LUẬN ĐIỂM gọn, giữ nguyên ý chính và căn cứ quan trọng nhất, bỏ ví dụ dài và câu chữ thừa. Mỗi thẻ tối đa 130 chữ.
 
-Mẫu cho từng thẻ:
-### Thẻ của [Tên bot]
+ĐỊNH DẠNG TRẢ VỀ — BẮT BUỘC TUÂN THỦ TUYỆT ĐỐI (app máy tính sẽ tự tách và tự gắn tên bot, bạn KHÔNG cần và KHÔNG được ghi tên bot):
+- Mỗi thẻ bắt đầu bằng một dòng mốc riêng, đúng cú pháp: ===THẺ {số}=== (ví dụ: ===THẺ 1===), theo đúng thứ tự 1, 2, 3... như thứ tự bài đầu vào.
+- Nội dung mỗi thẻ theo mẫu:
 - Kết luận: ...
 - Luận điểm: (đánh mã L1, L2... kèm căn cứ ngắn cho từng luận điểm)
 - Rủi ro tự nhận: ...
 - Độ tin cậy tự chấm: ...
-
-Giữ đúng tên bot ở tiêu đề thẻ. Không thêm nhận xét, không chấm điểm, không đề xuất mới.
+- Không viết lời mở đầu, không viết kết luận chung, không thêm nhận xét, không chấm điểm, không đề xuất mới.
 
 ${texts}`;
+}
+
+// Tach cau tra loi cua Gemini API thanh cac khoi tom tat theo thu tu bot.
+// Ham thuan, chiu dung form lech cua model theo nhieu tang:
+//   1) moc may ===THE n=== / ===THẺ n=== (form chuan app yeu cau);
+//   2) cac tieu de ### (gan bot theo ten trong tieu de, khong co ten thi
+//      gan theo thu tu xuat hien);
+//   3) cat theo vi tri xuat hien cua ten bot trong van ban;
+//   4) cuoi cung: chia doan van theo thu tu thanh n phan gan deu.
+// Tra ve mang co do dai = so bot truyen vao (bots theo dung thu tu);
+// khoi nao khong tach duoc thi de '' de ham lap the tu dien cho do.
+export function parseClaimCardSections(text, bots = BOTS) {
+  const src = String(text || '');
+  const n = bots.length;
+  const out = new Array(n).fill('');
+  if (!src.trim() || n === 0) return out;
+  const clean = (s) => String(s || '')
+    .replace(/^\s*#{2,4}\s.*$/m, '') // bo dong tieu de thua o dau khoi
+    .trim();
+
+  // Tang 1: moc may danh so.
+  const markerRe = /={2,}\s*TH[ẺE]\s*(\d+)\s*={2,}/g;
+  const markers = [];
+  let m;
+  while ((m = markerRe.exec(src)) !== null) markers.push({ num: Number(m[1]), idx: m.index, end: markerRe.lastIndex });
+  if (markers.length) {
+    for (let i = 0; i < markers.length; i++) {
+      const slot = markers[i].num - 1;
+      if (slot < 0 || slot >= n || out[slot]) continue;
+      const body = src.slice(markers[i].end, i + 1 < markers.length ? markers[i + 1].idx : src.length);
+      out[slot] = clean(body);
+    }
+    if (out.some(Boolean)) return out;
+  }
+
+  // Tang 2: tieu de ###.
+  const headingRe = /^#{2,4}\s.*$/gm;
+  const heads = [];
+  while ((m = headingRe.exec(src)) !== null) heads.push({ line: m[0], idx: m.index, end: headingRe.lastIndex });
+  if (heads.length >= 2) {
+    let nextFree = 0;
+    for (let i = 0; i < heads.length; i++) {
+      const body = src.slice(heads[i].end, i + 1 < heads.length ? heads[i + 1].idx : src.length).trim();
+      if (!body) continue;
+      const named = bots.findIndex((b) => heads[i].line.toLowerCase().includes(b.name.toLowerCase()));
+      let slot = named;
+      if (slot < 0 || out[slot]) { while (nextFree < n && out[nextFree]) nextFree += 1; slot = nextFree; }
+      if (slot >= 0 && slot < n && !out[slot]) { out[slot] = clean(body); }
+    }
+    if (out.some(Boolean)) return out;
+  }
+
+  // Tang 3: cat theo vi tri ten bot xuat hien.
+  const mentions = [];
+  bots.forEach((b, slot) => {
+    const idx = src.toLowerCase().indexOf(b.name.toLowerCase());
+    if (idx >= 0) mentions.push({ slot, idx });
+  });
+  if (mentions.length >= 2) {
+    mentions.sort((a, b) => a.idx - b.idx);
+    for (let i = 0; i < mentions.length; i++) {
+      const start = mentions[i].idx;
+      const body = src.slice(start, i + 1 < mentions.length ? mentions[i + 1].idx : src.length);
+      if (!out[mentions[i].slot]) out[mentions[i].slot] = clean(body.replace(/^.*?(?=\n|$)/, '').trim() || body);
+    }
+    if (out.some(Boolean)) return out;
+  }
+
+  // Tang 4: chia doan theo thu tu thanh n phan gan deu.
+  const paras = src.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  if (paras.length) {
+    const per = Math.ceil(paras.length / n);
+    for (let slot = 0; slot < n; slot++) {
+      out[slot] = paras.slice(slot * per, (slot + 1) * per).join('\n\n');
+    }
+  }
+  return out;
+}
+
+// Tom tat du phong do APP tu lam khi Gemini khong tra khoi tach duoc cho
+// mot bot: 2 cau dau cua bai vong 1, cat gon — chi la cho do tam, khong
+// phai tom tat that, nhung giu the day du ten bot de prompt vong 2 dung form.
+function placeholderSummary(answer) {
+  const flat = String(answer || '').replace(/\s+/g, ' ').trim();
+  const sentences = flat.match(/[^.!?…]+[.!?…]+/g) || [flat];
+  const two = sentences.slice(0, 2).join(' ').trim();
+  return `(Thẻ rút gọn tự động — điều phối không tách được phần tóm tắt của bài này)\n${two.slice(0, 320)}`;
+}
+
+// APP TU LAP the luan diem tu cac khoi Gemini tra ve: tieu de LUON la
+// "### Thẻ của {ten bot}" dung ten bot that — day la chuoi chinh xac ma
+// buildPrompt doi thanh ma an danh "Bai A/B/C/D" o vong 2. Model chi cung
+// cap NOI DUNG, CODE cung cap FORM — the da luu khong bao gio lech form
+// vi model tra ve lach nua.
+export function assembleClaimCards({ activeBots, sections, answers }) {
+  return activeBots
+    .map((b, i) => {
+      const section = String(sections?.[i] || '').trim();
+      const body = section || placeholderSummary(answers?.[1]?.[b.id]?.answer);
+      return `### Thẻ của ${b.name}\n${body}`;
+    })
+    .join('\n\n');
 }
 
 export function buildFormCheckPrompt({ topic, round, answers }) {
@@ -208,4 +320,81 @@ export function parseTopicAnalysis(text) {
 // Ten bot -> id, de saga biet the luan diem thuoc ve bot nao khi can.
 export function botNameOf(id) {
   return BOT_BY_ID[id]?.name || id;
+}
+
+// ---- Thu ky tro chuyen tao phien (WS3): nguoi dung chi can nhan chu de
+// vao 1 hop chat, thu ky Gemini tu hieu, tu ra soat cac diem can co truoc
+// khi tranh luan, va tu soan BAN NHAP phien (tieu de / muc tieu / tieu chi
+// / che do / prompt mo dau). Ban nhap nam trong khoi may o CUOI cau tra
+// loi — app tach ra, nguoi dung chi thay phan tro chuyen tu nhien.
+export function buildSessionDesignPrompt({ messages, draft }) {
+  const history = (messages || [])
+    .map((msg) => `${msg.role === 'user' ? 'NGƯỜI DÙNG' : 'THƯ KÝ'}: ${String(msg.text || '').trim()}`)
+    .join('\n\n');
+  const draftText = draft
+    ? `\nBẢN NHÁP PHIÊN HIỆN TẠI (bạn đã soạn ở lượt trước — hãy cập nhật nó theo tin nhắn mới nhất, giữ lại phần vẫn đúng):\nTiêu đề: ${draft.title || ''}\nMục tiêu: ${draft.goal || ''}\nTiêu chí: ${draft.criteria || ''}\nChế độ: ${draft.mode === 'fast' ? 'nhanh' : 'sau'}\n`
+    : '\nChưa có bản nháp nào — đây là lượt đầu, hãy soạn bản nháp đầu tiên.\n';
+  return `Bạn là THƯ KÝ của một hội đồng thảo luận gồm 4 chatbot (ChatGPT, Claude, Gemini, Copilot) tranh luận theo vòng, có một người tổng hợp cuối (Muse). Người dùng đang nhắn tin với bạn để tạo một phiên hội đồng. Bạn nói chuyện tự nhiên, thân thiện, ngắn gọn, bằng tiếng Việt.
+
+Việc của bạn ở MỖI lượt trả lời, theo đúng thứ tự:
+1) MỞ ĐẦU bằng việc mô tả lại những gì bạn HIỂU từ tin nhắn của người dùng ("Tôi hiểu bạn muốn...") — phần mô tả này bắt buộc có và phải đứng đầu câu trả lời.
+2) Rà soát danh sách kiểm tra trước tranh luận dưới đây, chỉ nêu những điểm CÒN THIẾU hoặc CHƯA RÕ dưới dạng câu hỏi ngắn, thân thiện (điểm nào người dùng đã nói rõ thì bỏ qua, không hỏi lại):
+   - Mục tiêu cụ thể muốn đạt được là gì
+   - Bối cảnh & thông tin nền liên quan
+   - Ràng buộc / giới hạn (thời gian, ngân sách, nguồn lực, điều không được làm...)
+   - Tiêu chí chấm, hoặc tiêu chí để chọn kết quả
+   - Kết quả mong muốn ở dạng gì (kế hoạch hành động, bảng so sánh, một quyết định, ...)
+   - Phạm vi — điều KHÔNG cần bàn tới
+   - Chế độ: Sâu (3 vòng, cho việc khó/quan trọng) hay Nhanh (1 lượt, cho việc dễ)
+   - Có tài liệu/ngữ cảnh đính kèm không
+   Nếu mọi điểm đã đủ rõ, hãy nói phiên đã sẵn sàng và nhắc người dùng có thể bấm nút tạo phiên.
+3) Sau đó trình bày ngắn gọn BẢN NHÁP PHIÊN hiện tại của bạn (tiêu đề, mục tiêu, tiêu chí chính, chế độ) để người dùng thấy bạn đang soạn gì. Người dùng có thể nhắn tiếp để sửa nháp ("đổi tiêu chí thành...", "thêm ràng buộc...") — khi đó hãy cập nhật nháp.
+${draftText}
+CUỐI câu trả lời, BẮT BUỘC thêm khối máy đúng cú pháp sau (app sẽ tự tách khối này ra, người dùng không nhìn thấy nó — nội dung nháp trong khối phải là bản mới nhất, đầy đủ):
+===BAN-NHAP===
+TIEU_DE: (một dòng tiêu đề phiên)
+MUC_TIEU: (mục tiêu + bối cảnh + ràng buộc, có thể nhiều dòng, kết thúc khi tới dòng TIEU_CHI:)
+TIEU_CHI: (mỗi tiêu chí một dòng, không đánh số đầu dòng)
+CHE_DO: sau (hoặc: nhanh)
+PROMPT_MO_DAU: (prompt mở phiên hoàn chỉnh cho hội đồng: bối cảnh, mục tiêu, ràng buộc cứng, nhiệm vụ vòng 1 mỗi bot đề xuất độc lập theo form kết luận/luận điểm/rủi ro/độ tin cậy, vòng 2 phản biện chéo ẩn danh, vòng 3 tác giả sửa bài — viết liền mạch, dùng được nguyên văn)
+===KET-THUC===
+
+LƯỢT TRÒ CHUYỆN:
+${history}
+
+Hãy trả lời lượt này của THƯ KÝ theo đúng hướng dẫn trên.`;
+}
+
+const SESSION_BLOCK_START = '===BAN-NHAP===';
+const SESSION_BLOCK_END = '===KET-THUC===';
+
+// Tach cau tra loi cua thu ky tro chuyen: phan nguoi dung thay (displayText)
+// va ban nhap may (draft). Ham thuan, test duoc. Khong co khoi may thi
+// draft = null va displayText la nguyen van. Truong nao thieu trong khoi
+// thi de trong — khong bao gio nem loi.
+export function parseSessionDesign(text) {
+  const src = String(text || '');
+  const start = src.indexOf(SESSION_BLOCK_START);
+  if (start < 0) return { displayText: src.trim(), draft: null };
+  const displayText = src.slice(0, start).trim();
+  const end = src.indexOf(SESSION_BLOCK_END, start);
+  const block = src.slice(start + SESSION_BLOCK_START.length, end >= 0 ? end : src.length);
+  const fields = {};
+  const fieldRe = /^\s*(TIEU_DE|MUC_TIEU|TIEU_CHI|CHE_DO|PROMPT_MO_DAU)\s*:\s?/gm;
+  const marks = [];
+  let m;
+  while ((m = fieldRe.exec(block)) !== null) marks.push({ key: m[1], idx: m.index, end: fieldRe.lastIndex });
+  for (let i = 0; i < marks.length; i++) {
+    const body = block.slice(marks[i].end, i + 1 < marks.length ? marks[i + 1].idx : block.length).trim();
+    fields[marks[i].key] = body;
+  }
+  if (!Object.keys(fields).length) return { displayText, draft: null };
+  const draft = {
+    title: (fields.TIEU_DE || '').split('\n').map((l) => l.trim()).filter(Boolean)[0] || '',
+    goal: fields.MUC_TIEU || '',
+    criteria: fields.TIEU_CHI || '',
+    mode: /nhanh/i.test((fields.CHE_DO || '').split('\n')[0] || '') ? 'fast' : 'deep',
+    openingPrompt: fields.PROMPT_MO_DAU || '',
+  };
+  return { displayText, draft };
 }

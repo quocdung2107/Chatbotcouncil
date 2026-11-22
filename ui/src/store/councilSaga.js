@@ -7,7 +7,7 @@ import {
 } from '../lib/council';
 import { checkPromptIntegrity } from '../lib/promptIntegrity';
 import { deriveCellStatus, CELL_STATUS } from '../lib/nextAction';
-import { callGemini, buildClaimCardsPrompt, buildFormCheckPrompt, buildSynthBriefPrompt, buildTopicAnalysisPrompt, parseTopicAnalysis } from '../lib/gemini';
+import { callGemini, buildClaimCardsPrompt, buildFormCheckPrompt, buildSynthBriefPrompt, buildTopicAnalysisPrompt, parseTopicAnalysis, activeRound1Bots, parseClaimCardSections, assembleClaimCards, buildSessionDesignPrompt, parseSessionDesign } from '../lib/gemini';
 import {
   copyPromptRequested, pasteAnswerRequested, fetchAnswerRequested, exportRequested,
   copySynthesisPromptRequested, pasteSynthesisAnswerRequested, fetchSynthesisAnswerRequested,
@@ -16,6 +16,7 @@ import {
   refreshFilesRequested,
   geminiTestRequested, geminiClaimCardsRequested, geminiFormCheckRequested, geminiSynthBriefRequested,
   geminiTopicAnalysisRequested, topicDraftReady, secretaryAutoMarked, secretaryStatusSet,
+  sessionChatSendRequested, setupChatUserSent, setupChatReplyReceived, setupChatFailed,
   geminiConsentSet,
   promptCopied, answerPasted, answerFetched, saveAnswer, nextRound, finishSession,
   synthesisPromptCopied, synthesisAnswerPasted, synthesisAnswerFetched, synthesisSaved,
@@ -621,10 +622,22 @@ function* geminiClaimCardsSaga(action) {
     yield put(logAdded('Chưa tóm tắt được: vòng 1 cần mọi bot đã Lưu hoặc Bỏ qua (tối thiểu 2 đã lưu) trước.'));
     return;
   }
-  const result = yield call(geminiCall, action.payload, 'claimCards', buildClaimCardsPrompt({ topic: state.topic, answers: state.answers }));
+  // APP TU LAP THE tu khoi tom tat Gemini tra ve: model chi dua NOI DUNG,
+  // code tu gan tieu de "### Thẻ của {ten bot}" dung ten that cho tung bot
+  // — the luu xuong LUON dung form ma buildPrompt an danh hoa duoc, khong
+  // con phu thuoc Gemini tra ve dung mau nua. Khoi nao khong tach duoc thi
+  // ham lap the tu dien tom tat du phong tu bai vong 1 cua bot do.
+  const activeBots = activeRound1Bots(state.answers, skipsOf(state)[1]);
+  const result = yield call(geminiCall, action.payload, 'claimCards', buildClaimCardsPrompt({ topic: state.topic, answers: state.answers, botIds: activeBots.map((b) => b.id) }));
   if (result) {
-    yield put(claimCardsReady(result.text));
-    yield call(writeSessionFile, 'dieu-phoi/the-luan-diem-vong-1.md', `# Thẻ luận điểm vòng 1 (Gemini API tóm tắt) — ${state.topic.title}\n\n${result.text}\n`, 'Đã ghi thẻ luận điểm (điều phối Gemini API) vào thư mục phiên');
+    const sections = parseClaimCardSections(result.text, activeBots);
+    const assembled = assembleClaimCards({ activeBots, sections, answers: state.answers });
+    const parsedCount = sections.filter((s) => String(s || '').trim()).length;
+    if (parsedCount < activeBots.length) {
+      yield put(logAdded(`Điều phối: Gemini trả thẻ luận điểm lệch form — app đã tự lắp lại thẻ cho ${activeBots.length} bot (tách được ${parsedCount}/${activeBots.length} phần tóm tắt, phần còn lại dùng tóm tắt dự phòng từ bài gốc). Prompt vòng 2 vẫn dùng được bình thường.`));
+    }
+    yield put(claimCardsReady(assembled));
+    yield call(writeSessionFile, 'dieu-phoi/the-luan-diem-vong-1.md', `# Thẻ luận điểm vòng 1 (Gemini API tóm tắt, app tự lắp đúng form) — ${state.topic.title}\n\n${assembled}\n`, 'Đã ghi thẻ luận điểm (điều phối Gemini API) vào thư mục phiên');
     yield call(writeSnapshot);
   }
 }
@@ -714,6 +727,37 @@ function* geminiTopicAnalysisSaga(action) {
   }
 }
 
+// ---- Tro chuyen tao phien voi thu ky (WS3) ----
+// Nguoi dung nhan chu de vao hop chat o man hinh bat dau; saga gui toan bo
+// hoi thoai + ban nhap hien tai len Gemini, tach khoi may o cuoi cau tra
+// loi (parseSessionDesign) — nguoi dung chi thay phan tro chuyen tu nhien,
+// ban nhap cap nhat o state de nut "Tao phien voi noi dung nay" ap dung.
+function* sessionChatSaga(action) {
+  const text = String(action.payload?.text || '').trim();
+  if (!text) return;
+  const state0 = yield select(selectCouncil);
+  if (state0.coordinator?.consent !== true) {
+    yield put(logAdded('🧑‍💼 Thư ký: hãy đọc hộp cảnh báo gửi nội dung lên Gemini API phía trên hộp chat và bấm "Đồng ý" trước khi nhắn.'));
+    return;
+  }
+  const payload = secretaryPayload();
+  if (!payload) {
+    yield put(logAdded('🧑‍💼 Thư ký: chưa có Gemini API key — hãy nhập key ở panel Điều phối trước.'));
+    return;
+  }
+  yield put(setupChatUserSent(text));
+  const state = yield select(selectCouncil);
+  const prompt = buildSessionDesignPrompt({ messages: state.setupChat.messages, draft: state.setupChat.draft });
+  const result = yield call(geminiCall, payload, 'sessionChat', prompt);
+  if (!result) {
+    yield put(setupChatFailed());
+    return;
+  }
+  yield put(geminiBusy(''));
+  const { displayText, draft } = parseSessionDesign(result.text);
+  yield put(setupChatReplyReceived({ displayText, draft }));
+}
+
 // Watcher: chay sau cac su kien co the lam 1 vong "du" (luu dap an, bo qua,
 // dong y Gemini, chot sang tong hop). Moi viec danh dau autoRan TRUOC khi
 // chay nen khong bao gio tu chay 2 lan cho cung 1 dau vao; loi API thi
@@ -793,6 +837,7 @@ export default function* rootSaga() {
     takeEvery(geminiFormCheckRequested.type, geminiFormCheckSaga),
     takeEvery(geminiSynthBriefRequested.type, geminiSynthBriefSaga),
     takeEvery(geminiTopicAnalysisRequested.type, geminiTopicAnalysisSaga),
+    takeEvery(sessionChatSendRequested.type, sessionChatSaga),
     takeEvery([saveAnswer.type, answerPasted.type, botSkipped.type, geminiConsentSet.type, finishSession.type], secretaryAutoSaga),
   ]);
 }

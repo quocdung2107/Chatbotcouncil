@@ -71,6 +71,11 @@ const initialState = {
   // candidates[botId] = danh sach vung ung vien quet tu trang that,
   // picking = botId dang o che do chon vung truc tiep tren trang.
   extractUi: { candidates: {}, lowCandidates: {}, picking: '' },
+  // Tro chuyen tao phien voi thu ky Gemini o man hinh bat dau (WS3): nguoi
+  // dung chi nhan chu de vao 1 hop chat, thu ky tu hieu + ra soat + soan
+  // ban nhap phien. Chi la trang thai giao dien tam thoi — KHONG ghi vao
+  // phien.json (writeSnapshot chi ghi topic/answers/coordinator rut gon).
+  setupChat: { messages: [], draft: null, busy: false },
   files: emptyFiles(),
   log: [],
 };
@@ -277,6 +282,22 @@ const councilSlice = createSlice({
       state.coordinator.topicDraft = action.payload || null;
       state.log.unshift({ time: timeNow(), text: '🧑‍💼 Thư ký Gemini đã phân tích chủ đề xong — xem bản soạn sẵn ở mục Thư ký trên màn hình bắt đầu, duyệt từng phần rồi bấm nút "Dùng ..." để áp dụng.' });
     },
+    // ---- Tro chuyen tao phien voi thu ky (WS3) ----
+    setupChatUserSent(state, action) {
+      const text = String(action.payload || '').trim();
+      if (!text) return;
+      state.setupChat.messages.push({ role: 'user', text });
+      state.setupChat.busy = true;
+    },
+    setupChatReplyReceived(state, action) {
+      const { displayText, draft } = action.payload || {};
+      state.setupChat.busy = false;
+      state.setupChat.messages.push({ role: 'secretary', text: String(displayText || '').trim() || '(Thư ký chưa trả lời rõ — hãy nhắn lại cụ thể hơn.)' });
+      if (draft) state.setupChat.draft = draft;
+    },
+    setupChatFailed(state) {
+      state.setupChat.busy = false;
+    },
     // ---- Cai dat lay dap an nang cao ----
     candidatesReady(state, action) {
       const { botId, candidates } = action.payload;
@@ -395,6 +416,7 @@ const councilSlice = createSlice({
     geminiFormCheckRequested() {},
     geminiSynthBriefRequested() {},
     geminiTopicAnalysisRequested() {},
+    sessionChatSendRequested() {},
   },
 });
 
@@ -419,6 +441,7 @@ export const {
   refreshFilesRequested,
   geminiTestRequested, geminiClaimCardsRequested, geminiFormCheckRequested, geminiSynthBriefRequested,
   geminiTopicAnalysisRequested, secretaryAutoMarked, secretaryStatusSet, topicDraftReady,
+  setupChatUserSent, setupChatReplyReceived, setupChatFailed, sessionChatSendRequested,
 } = councilSlice.actions;
 
 export default councilSlice.reducer;

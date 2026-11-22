@@ -232,6 +232,9 @@ export function buildPrompt({ topic, round, botId, answers, contextText, claimCa
     // the (gon, bot phan bien doc nhanh) — the van giu ten bot that nen phai
     // doi ten thanh ma an danh A-D truoc khi dua vao prompt. Chua co the thi
     // dung nguyen van bai vong 1 nhu truoc (fallback cua thiet ke goc).
+    const fullTextCards = () => order
+      .map((id) => `--- Bài của ${aliasOf[id]} ---\n${(answers[1]?.[id]?.answer || '').trim()}`)
+      .join('\n\n');
     let cardsText;
     let cardsNote = '';
     if (claimCards && claimCards.trim()) {
@@ -242,12 +245,21 @@ export function buildPrompt({ topic, round, botId, answers, contextText, claimCa
         // phan bien; neu the con nhac ten thi thay bang nhan trung tinh.
         anonymized = anonymized.split(b.name).join(aliasOf[b.id] ? `Bài ${aliasOf[b.id]}` : '(bot đã bỏ qua)');
       });
-      cardsText = anonymized.trim();
-      cardsNote = ' (đã rút gọn thành thẻ luận điểm bởi điều phối Gemini API)';
+      anonymized = anonymized.trim();
+      // TU CHUA LANH: the luan diem chi dung duoc khi SAU an danh hoa no
+      // chua DU ma "Bai A/B/C/D" cho moi bai trong vong. The lech form
+      // (model tra ve khong con ten bot that de doi) thi BO THE, quay ve
+      // nguyen van bai vong 1 — nhanh do LUON co du ma. Nho vay prompt
+      // vong 2 khong bao gio bi promptIntegrity chan vi the nua.
+      const missingAlias = order.some((id) => !new RegExp(`Bài (của )?${aliasOf[id]}\\b`).test(anonymized));
+      if (missingAlias) {
+        cardsText = fullTextCards();
+      } else {
+        cardsText = anonymized;
+        cardsNote = ' (đã rút gọn thành thẻ luận điểm bởi điều phối Gemini API)';
+      }
     } else {
-      cardsText = order
-        .map((id) => `--- Bài của ${aliasOf[id]} ---\n${(answers[1]?.[id]?.answer || '').trim()}`)
-        .join('\n\n');
+      cardsText = fullTextCards();
     }
     task = `Vai của bạn vòng này: phản biện bài của ${aliasOf[targetId]} (bài của một thành viên vòng 1, đã ẩn danh). Chỉ phản biện bài đó, không phản biện bài khác. Nếu thấy bài khác đúng thì nói rõ đồng ý ở điểm nào.`;
     form = FORM_V2;

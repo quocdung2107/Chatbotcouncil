@@ -320,3 +320,106 @@ test('extractor: script chay duoc tren fake-DOM va lay dung khoi dap an', () => 
   assert.ok(['default', 'scan', 'deep'].includes(result.strategy));
   assert.ok(Array.isArray(result.candidates));
 });
+
+// ---------- WS1: app tu lap the luan diem — code cung cap FORM ----------
+test('gemini parseClaimCardSections: tach dung moc may ===THE n===', async () => {
+  const { parseClaimCardSections, BOTS: _b } = await loadEsm('src/lib/gemini.js');
+  const { BOTS } = await loadEsm('src/lib/council.js');
+  const raw = '===THẺ 1===\n- Kết luận: A chon huong 1.\n===THẺ 2===\n- Kết luận: B chon huong 2.\n===THE 3===\n- Kết luận: C chon huong 3.\n===THẺ 4===\n- Kết luận: D chon huong 4.';
+  const sections = parseClaimCardSections(raw, BOTS);
+  assert.equal(sections.length, 4);
+  assert.ok(sections[0].includes('huong 1'));
+  assert.ok(sections[1].includes('huong 2'));
+  assert.ok(sections[2].includes('huong 3'));
+  assert.ok(sections[3].includes('huong 4'));
+});
+
+test('gemini parseClaimCardSections: form lech (tieu de ###) van tach duoc theo thu tu', async () => {
+  const { parseClaimCardSections } = await loadEsm('src/lib/gemini.js');
+  const { BOTS } = await loadEsm('src/lib/council.js');
+  const raw = '### Thẻ 1\nNoi dung mot.\n\n### Thẻ 2\nNoi dung hai.\n\n### Thẻ 3\nNoi dung ba.\n\n### Thẻ 4\nNoi dung bon.';
+  const sections = parseClaimCardSections(raw, BOTS);
+  assert.ok(sections[0].includes('Noi dung mot'));
+  assert.ok(sections[3].includes('Noi dung bon'));
+});
+
+test('gemini assembleClaimCards: tieu de luon dung ten bot; thieu khoi thi dien du phong tu bai goc', async () => {
+  const { assembleClaimCards } = await loadEsm('src/lib/gemini.js');
+  const { BOTS } = await loadEsm('src/lib/council.js');
+  const answers = { 1: Object.fromEntries(BOTS.map((b, i) => [b.id, { answer: `Cau mot cua bot ${i + 1}. Cau hai bo sung chi tiet.` }])) };
+  const sections = ['Tom tat mot.', '', 'Tom tat ba.', ''];
+  const cards = assembleClaimCards({ activeBots: BOTS, sections, answers });
+  for (const b of BOTS) assert.ok(cards.includes(`### Thẻ của ${b.name}`), `thieu the cua ${b.name}`);
+  assert.ok(cards.includes('Tom tat mot.'));
+  assert.ok(cards.includes('Cau mot cua bot 2.'), 'khoi thieu phai duoc dien bang cau dau bai goc');
+});
+
+test('council buildPrompt vong 2: the luan diem RAC (khong co ten bot) van du Bai A-D, khong bi chan', async () => {
+  const { buildPrompt } = await loadEsm('src/lib/council.js');
+  const { checkPromptIntegrity } = await loadEsm('src/lib/promptIntegrity.js');
+  const garbage = 'Tom tat chung chung khong he nhac ten ai. Moi bai deu noi ve huong A va huong B.';
+  const p = buildPrompt({ topic: TOPIC, round: 2, botId: 'gemini', answers: ANSWERS, claimCards: garbage });
+  for (const a of ['A', 'B', 'C', 'D']) assert.ok(p.includes(`Bài của ${a}`) || p.includes(`Bài ${a}`), `thieu Bai ${a}`);
+  assert.ok(p.includes('BAI-GPT marker rieng 1'), 'the rac thi phai roi ve nguyen van bai vong 1');
+  assert.equal(checkPromptIntegrity(p, 2, ['A', 'B', 'C', 'D']).ok, true);
+});
+
+test('council buildPrompt vong 2: the dung form (app lap) thi dung ban tom tat va du ma', async () => {
+  const { buildPrompt } = await loadEsm('src/lib/council.js');
+  const { assembleClaimCards } = await loadEsm('src/lib/gemini.js');
+  const { BOTS } = await loadEsm('src/lib/council.js');
+  const cards = assembleClaimCards({ activeBots: BOTS, sections: ['TT1 rieng', 'TT2 rieng', 'TT3 rieng', 'TT4 rieng'], answers: ANSWERS });
+  const p = buildPrompt({ topic: TOPIC, round: 2, botId: 'chatgpt', answers: ANSWERS, claimCards: cards });
+  assert.ok(p.includes('TT1 rieng') || p.includes('TT2 rieng'));
+  assert.ok(p.includes('đã rút gọn thành thẻ luận điểm'));
+  for (const a of ['A', 'B', 'C', 'D']) assert.ok(p.includes(`Bài ${a}`) || p.includes(`Bài của ${a}`), `thieu Bai ${a}`);
+  assert.ok(p.includes('Thẻ của Bài'), 'tieu de the phai da doi ten bot thanh ma an danh');
+  assert.ok(!p.includes('Thẻ của ChatGPT') && !p.includes('Thẻ của Claude'), 'ten that khong duoc con o tieu de the');
+});
+
+// ---------- WS3: thu ky tro chuyen tao phien ----------
+test('gemini buildSessionDesignPrompt: co hoi thoai, yeu cau mo ta hieu + khoi BAN-NHAP', async () => {
+  const { buildSessionDesignPrompt } = await loadEsm('src/lib/gemini.js');
+  const p = buildSessionDesignPrompt({ messages: [{ role: 'user', text: 'Toi muon ban ve viec mo quan ca phe.' }], draft: null });
+  assert.ok(p.includes('mo quan ca phe'));
+  assert.ok(p.includes('Tôi hiểu bạn muốn'));
+  assert.ok(p.includes('===BAN-NHAP==='));
+  assert.ok(p.includes('PROMPT_MO_DAU:'));
+});
+
+test('gemini parseSessionDesign: tach khoi may khoi phan hien thi, doc du nhap', async () => {
+  const { parseSessionDesign } = await loadEsm('src/lib/gemini.js');
+  const raw = [
+    'Tôi hiểu bạn muốn mở quán cà phê nhỏ và cần chọn địa điểm.',
+    'Bạn cho tôi biết thêm ngân sách tối đa nhé?',
+    '===BAN-NHAP===',
+    'TIEU_DE: Chọn địa điểm mở quán cà phê',
+    'MUC_TIEU: Chọn 1 địa điểm trong 3 phương án.',
+    'Ngân sách thuê tối đa 20 triệu/tháng.',
+    'TIEU_CHI: Lưu lượng khách qua lại',
+    'Chi phí thuê',
+    'CHE_DO: sau',
+    'PROMPT_MO_DAU: Hãy tranh luận về địa điểm mở quán...',
+    '===KET-THUC===',
+  ].join('\n');
+  const { displayText, draft } = parseSessionDesign(raw);
+  assert.ok(displayText.includes('Tôi hiểu bạn muốn'));
+  assert.ok(!displayText.includes('BAN-NHAP'));
+  assert.equal(draft.title, 'Chọn địa điểm mở quán cà phê');
+  assert.ok(draft.goal.includes('Ngân sách thuê'));
+  assert.ok(draft.criteria.includes('Chi phí thuê'));
+  assert.equal(draft.mode, 'deep');
+  assert.ok(draft.openingPrompt.includes('tranh luận'));
+});
+
+test('gemini parseSessionDesign: khong co khoi may thi draft null; khoi thieu truong thi de trong', async () => {
+  const { parseSessionDesign } = await loadEsm('src/lib/gemini.js');
+  const plain = parseSessionDesign('Tôi hiểu bạn muốn bàn về X. Bạn nói rõ mục tiêu nhé?');
+  assert.equal(plain.draft, null);
+  assert.ok(plain.displayText.includes('Tôi hiểu'));
+  const partial = parseSessionDesign('Tôi hiểu rồi.\n===BAN-NHAP===\nTIEU_DE: Chỉ có tiêu đề\nCHE_DO: nhanh\n===KET-THUC===');
+  assert.equal(partial.draft.title, 'Chỉ có tiêu đề');
+  assert.equal(partial.draft.mode, 'fast');
+  assert.equal(partial.draft.goal, '');
+  assert.equal(partial.draft.openingPrompt, '');
+});
