@@ -126,6 +126,85 @@ ${finals}
 ${critiques}`;
 }
 
+// ---- Thu ky chu de (Phase B): phan tich chu de tho o man hinh bat dau ----
+// Gemini API doc chu de nguoi dung vua go, hieu y, roi SOAN SAN: tieu de
+// gon, muc tieu/boi canh, tieu chi cham, cau hoi lam ro, prompt mo phien
+// theo phong cach hoi dong, va de xuat che do. Nguoi dung duyet tung phan
+// roi moi dung — thu ky chi soan nhap, khong tu ap dung.
+export function buildTopicAnalysisPrompt({ title, goal }) {
+  const rawTitle = String(title || '').trim();
+  const rawGoal = String(goal || '').trim();
+  return `Bạn là THƯ KÝ của một hội đồng thảo luận gồm 4 chatbot (ChatGPT, Claude, Gemini, Copilot) tranh luận 3 vòng và một người tổng hợp cuối (Muse). Người dùng vừa nhập một chủ đề còn thô. Việc của bạn: hiểu chủ đề, rồi soạn sẵn mọi thứ để người dùng chỉ cần duyệt lại trước khi mở phiên.
+
+Chủ đề người dùng nhập: "${rawTitle}"
+Mục tiêu / bối cảnh người dùng ghi thêm: "${rawGoal || '(chưa ghi)'}"
+
+Hãy trả lời bằng tiếng Việt, dùng ĐÚNG 6 tiêu đề sau, mỗi tiêu đề viết nguyên văn kèm dấu hai chấm, theo đúng thứ tự này (không thêm tiêu đề khác, không bọc trong bảng):
+
+TIÊU ĐỀ ĐỀ XUẤT:
+(một tiêu đề gọn, rõ, dạng câu hỏi hoặc vấn đề cần quyết định, tối đa 20 chữ)
+
+MỤC TIÊU VÀ BỐI CẢNH:
+(2-4 câu: mục tiêu cần đạt, bối cảnh/bên liên quan, giới hạn và ràng buộc suy ra được từ chủ đề; chỗ nào là suy đoán của bạn thì ghi rõ "(cần người dùng xác nhận)")
+
+TIÊU CHÍ CHẤM:
+(3-5 dòng, mỗi dòng một tiêu chí chấm đáp án cho chủ đề này, mỗi dòng bắt đầu bằng "- ")
+
+CÂU HỎI LÀM RÕ:
+(0-4 câu hỏi người dùng nên trả lời để hội đồng bàn đúng trọng tâm, mỗi câu một dòng bắt đầu bằng "- "; nếu chủ đề đã đủ rõ thì ghi đúng một dòng "- (không có — chủ đề đã đủ rõ)")
+
+PROMPT MỞ PHIÊN:
+(một prompt hoàn chỉnh để mở phiên hội đồng cho chủ đề này, gồm: bối cảnh và mục tiêu; các ràng buộc cứng liên quan; yêu cầu vòng 1 mỗi bot đề xuất độc lập theo form: kết luận ngắn, luận điểm chính kèm căn cứ, rủi ro, độ tin cậy tự chấm, điểm cần kiểm chứng; vòng 2 phản biện chéo ẩn danh; vòng 3 tác giả sửa bài; và tiêu chí chấm ở trên. Viết như một văn bản liền mạch để dùng nguyên văn.)
+
+CHẾ ĐỘ ĐỀ XUẤT:
+(ghi đúng một chữ "Sâu" hoặc "Nhanh" ở đầu dòng, kèm 1 câu lý do: Sâu = 3 vòng đầy đủ cho chủ đề khó/cần quyết định quan trọng; Nhanh = 1 lượt nối tiếp cho chủ đề dễ)`;
+}
+
+const TOPIC_HEADINGS = [
+  ['title', 'TIÊU ĐỀ ĐỀ XUẤT:'],
+  ['goal', 'MỤC TIÊU VÀ BỐI CẢNH:'],
+  ['criteria', 'TIÊU CHÍ CHẤM:'],
+  ['questions', 'CÂU HỎI LÀM RÕ:'],
+  ['openingPrompt', 'PROMPT MỞ PHIÊN:'],
+  ['modeText', 'CHẾ ĐỘ ĐỀ XUẤT:'],
+];
+
+// Tach cau tra loi cua thu ky thanh tung truong theo 6 tieu de o tren.
+// Ham thuan (khong phu thuoc DOM/API) de test duoc. Thieu muc nao thi
+// truong do de trong, khong bao gio nem loi.
+export function parseTopicAnalysis(text) {
+  const src = String(text || '');
+  const out = { title: '', goal: '', criteria: '', questions: [], openingPrompt: '', mode: 'deep', modeReason: '' };
+  const found = [];
+  for (const [key, heading] of TOPIC_HEADINGS) {
+    const idx = src.indexOf(heading);
+    if (idx >= 0) found.push({ key, heading, idx });
+  }
+  found.sort((a, b) => a.idx - b.idx);
+  const clean = (s) => String(s || '').replace(/^[\s*#>-]+/, '').replace(/[\s*]+$/, '').trim();
+  for (let i = 0; i < found.length; i++) {
+    const start = found[i].idx + found[i].heading.length;
+    const end = i + 1 < found.length ? found[i + 1].idx : src.length;
+    const body = src.slice(start, end).trim();
+    const key = found[i].key;
+    if (key === 'questions') {
+      out.questions = body
+        .split('\n')
+        .map((line) => line.replace(/^[\s\-•*\d.)]+/, '').trim())
+        .filter((line) => line && !/^\(?không có/i.test(line));
+    } else if (key === 'modeText') {
+      const firstLine = body.split('\n').map((l) => l.trim()).filter(Boolean)[0] || '';
+      out.mode = /nhanh/i.test(firstLine) ? 'fast' : 'deep';
+      out.modeReason = clean(body);
+    } else if (key === 'title') {
+      out.title = clean(body.split('\n').filter((l) => l.trim())[0] || '');
+    } else {
+      out[key] = body.replace(/^[\s*#]+/, '').trim();
+    }
+  }
+  return out;
+}
+
 // Ten bot -> id, de saga biet the luan diem thuoc ve bot nao khi can.
 export function botNameOf(id) {
   return BOT_BY_ID[id]?.name || id;

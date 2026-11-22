@@ -12,7 +12,7 @@
 //  headings   0-10: du muc bat buoc cua mau vong = 10, thieu 1 muc tru 3
 //  stop       0-5 : khong con dau hieu dang go = 5; con nut Stop = 0
 
-export const STRATEGY_POINTS = { custom: 25, pick: 25, default: 18, scan: 10, deep: 5 };
+export const STRATEGY_POINTS = { custom: 25, pick: 25, default: 18, dynamic: 15, scan: 10, deep: 5 };
 
 // Do giong 0..1 giua 2 doan text (Dice tren bigram ky tu — du on dinh cho
 // viec phat hien "bot van dang go" va "trung dap an cu").

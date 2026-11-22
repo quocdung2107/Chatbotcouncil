@@ -51,7 +51,15 @@ const initialState = {
   synthesis: { status: STATUS.idle, answer: '' },
   // Dieu phoi Gemini API (API key KHONG luu o day — key chi o localStorage
   // rieng cua panel, khong vao phien.json): ket qua dieu phoi cua phien.
-  coordinator: { claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '', consent: null },
+  coordinator: {
+    claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '', consent: null,
+    // Thu ky tu dong (Gemini API chu dong): viec tu dong nao da chay trong
+    // phien nay (chong chay lai), nhap phan tich chu de o man hinh bat dau,
+    // va dong trang thai viec tu dong gan nhat de panel hien.
+    autoRan: { claimCards: false, formCheckRounds: [], synthBrief: false },
+    topicDraft: null,
+    lastAuto: '',
+  },
   // V3 (Muc 6 thiet ke): khung kiem dinh chat luong vong cua Gemini API —
   // { roundN: { botId: { verdict, reasons } } }. MVP moi dung khung + co
   // NEEDS_REVIEW do nguoi dung/Gemini gan; dien day du o V2.
@@ -77,7 +85,10 @@ const councilSlice = createSlice({
     },
     startSession(state) {
       if (!state.topic.title.trim()) return;
-      state.coordinator.consent = null; // phien moi: hoi lai canh bao Gemini
+      // KHONG xoa consent o day: nguoi dung co the da dong y ngay tai man
+      // hinh bat dau (khi dung Thu ky phan tich chu de) — dong y do phai
+      // duoc giu sang phien vua bat dau. Phien moi that su (nut Chu de moi)
+      // di qua resetAll nen consent van hoi lai dung 1 lan moi phien.
       state.phase = 'running';
       state.round = 1;
       state.activeBotId = 'chatgpt';
@@ -248,6 +259,24 @@ const councilSlice = createSlice({
       state.coordinator.busy = '';
       state.log.unshift({ time: timeNow(), text: `Gemini API kết nối THÀNH CÔNG bằng model ${action.payload} — key dùng được, vai trò điều phối đã sẵn sàng.` });
     },
+    // ---- Thu ky tu dong Gemini API ----
+    secretaryAutoMarked(state, action) {
+      const { job, round } = action.payload || {};
+      if (!state.coordinator.autoRan) state.coordinator.autoRan = { claimCards: false, formCheckRounds: [], synthBrief: false };
+      if (job === 'claimCards') state.coordinator.autoRan.claimCards = true;
+      if (job === 'synthBrief') state.coordinator.autoRan.synthBrief = true;
+      if (job === 'formCheck' && typeof round === 'number' && !state.coordinator.autoRan.formCheckRounds.includes(round)) {
+        state.coordinator.autoRan.formCheckRounds.push(round);
+      }
+    },
+    secretaryStatusSet(state, action) {
+      state.coordinator.lastAuto = action.payload || '';
+    },
+    topicDraftReady(state, action) {
+      state.coordinator.busy = '';
+      state.coordinator.topicDraft = action.payload || null;
+      state.log.unshift({ time: timeNow(), text: '🧑‍💼 Thư ký Gemini đã phân tích chủ đề xong — xem bản soạn sẵn ở mục Thư ký trên màn hình bắt đầu, duyệt từng phần rồi bấm nút "Dùng ..." để áp dụng.' });
+    },
     // ---- Cai dat lay dap an nang cao ----
     candidatesReady(state, action) {
       const { botId, candidates } = action.payload;
@@ -316,7 +345,12 @@ const councilSlice = createSlice({
       state.topic = data.topic;
       state.answers = data.answers;
       state.synthesis = data.synthesis || { status: STATUS.idle, answer: '' };
-      state.coordinator = { claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '', consent: null, ...(data.coordinator || {}) };
+      state.coordinator = {
+        claimCards: '', formReport: '', synthBrief: '', busy: '', lastError: '', consent: null,
+        autoRan: { claimCards: false, formCheckRounds: [], synthBrief: false }, topicDraft: null, lastAuto: '',
+        ...(data.coordinator || {}),
+      };
+      state.coordinator.autoRan = { claimCards: false, formCheckRounds: [], synthBrief: false, ...(state.coordinator.autoRan || {}) };
       if (typeof data.geminiConsent === 'boolean') state.coordinator.consent = data.geminiConsent;
       state.qualityGate = data.qualityGate || {};
       state.phase = data.phase || 'running';
@@ -360,6 +394,7 @@ const councilSlice = createSlice({
     geminiClaimCardsRequested() {},
     geminiFormCheckRequested() {},
     geminiSynthBriefRequested() {},
+    geminiTopicAnalysisRequested() {},
   },
 });
 
@@ -383,6 +418,7 @@ export const {
   restoreSessionRequested, openSessionRequested, dropAnswerFileRequested,
   refreshFilesRequested,
   geminiTestRequested, geminiClaimCardsRequested, geminiFormCheckRequested, geminiSynthBriefRequested,
+  geminiTopicAnalysisRequested, secretaryAutoMarked, secretaryStatusSet, topicDraftReady,
 } = councilSlice.actions;
 
 export default councilSlice.reducer;

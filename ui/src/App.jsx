@@ -18,6 +18,7 @@ import BotDialog from './components/BotDialog';
 import RoundStepper from './components/RoundStepper';
 import FilesPanel from './components/FilesPanel';
 import GeminiPanel from './components/GeminiPanel';
+import TopicSecretary from './components/TopicSecretary';
 import NextActionBar from './components/NextActionBar';
 import { COMPARE_STORAGE_KEY } from './components/CompareView';
 
@@ -390,6 +391,7 @@ export default function App() {
                 </div>
               </div>
             </div>
+            <TopicSecretary />
             <FilesPanel />
             <GeminiPanel />
           </section>

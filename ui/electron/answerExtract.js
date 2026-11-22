@@ -111,16 +111,31 @@ function textOf(el) {
 function isVisible(el) {
   try { const r = el.getClientRects(); return !!(r && r.length > 0); } catch (_) { return false; }
 }
+function looksDynamicToken(s) {
+  const v = String(s || '');
+  if (!v) return false;
+  if (/\\d{4,}/.test(v)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(v)) return true;
+  if (/^[0-9a-f]{12,}$/i.test(v)) return true;
+  if (v.length >= 12 && /[A-Za-z]/.test(v) && /\\d/.test(v) && !/[-_.]/.test(v)) return true;
+  return false;
+}
+function isHashClass(c) {
+  if (/\\d{4,}/.test(c)) return true;
+  if (c.length >= 10 && /[a-z]/.test(c) && /[A-Z]/.test(c) && /\\d/.test(c)) return true;
+  if (c.length >= 24 && /\\d/.test(c)) return true;
+  return false;
+}
 function segmentOf(el) {
   const tag = el.tagName.toLowerCase();
-  if (el.id) { try { return '#' + CSS.escape(el.id); } catch (_) { return '#' + el.id; } }
+  if (el.id && !looksDynamicToken(el.id)) { try { return '#' + CSS.escape(el.id); } catch (_) { return '#' + el.id; } }
   const dt = el.getAttribute && el.getAttribute('data-testid');
-  if (dt) return tag + '[data-testid="' + dt + '"]';
+  if (dt && !looksDynamicToken(dt)) return tag + '[data-testid="' + dt + '"]';
   const role = el.getAttribute && el.getAttribute('data-message-author-role');
   if (role) return tag + '[data-message-author-role="' + role + '"]';
   let cls = [];
   if (typeof el.className === 'string') {
-    cls = el.className.split(/\\s+/).filter((c) => c && c.length <= 32 && !/\\d{4,}/.test(c)).slice(0, 2);
+    cls = el.className.split(/\\s+/).filter((c) => c && c.length <= 32 && !isHashClass(c)).slice(0, 2);
   }
   let seg = tag + (cls.length ? '.' + cls.join('.') : '');
   const parent = el.parentNode;
@@ -135,7 +150,7 @@ function cssPath(el) {
   while (node && node.nodeType === 1 && guard < 14) {
     guard += 1;
     parts.unshift(segmentOf(node));
-    if (node.id) break;
+    if (node.id && !looksDynamicToken(node.id)) break;
     let parent = node.parentNode;
     if (!parent) {
       const root = node.getRootNode && node.getRootNode();
@@ -177,7 +192,7 @@ function queryAny(sel) {
 
 
 // ===== Confidence scoring (ban sao cua src/lib/confidence.js — PHAI khop) =====
-const STRATEGY_POINTS = { custom: 25, pick: 25, default: 18, scan: 10, deep: 5 };
+const STRATEGY_POINTS = { custom: 25, pick: 25, default: 18, dynamic: 15, scan: 10, deep: 5 };
 
 function textSimilarity(a, b) {
   const s1 = String(a || '').replace(/\s+/g, ' ').trim();
@@ -225,12 +240,49 @@ function scoreConfidence({ strategy, text, secondText, prevText, requiredHeading
   return { confidence, breakdown };
 }
 
+// Ban sao Node cua looksDynamicToken/isHashClass trong PAGE_HELPERS (PHAI
+// khop logic): nhan dien id/key/class "dong" — doi theo tung cuoc hoi thoai
+// (Copilot) — de khong bao gio ghi chung vao selector da luu.
+function looksDynamicToken(s) {
+  const v = String(s || '');
+  if (!v) return false;
+  if (/\d{4,}/.test(v)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(v)) return true;
+  if (/^[0-9a-f]{12,}$/i.test(v)) return true;
+  if (v.length >= 12 && /[A-Za-z]/.test(v) && /\d/.test(v) && !/[-_.]/.test(v)) return true;
+  return false;
+}
+function isHashClass(c) {
+  if (/\d{4,}/.test(c)) return true;
+  if (c.length >= 10 && /[a-z]/.test(c) && /[A-Z]/.test(c) && /\d/.test(c)) return true;
+  if (c.length >= 24 && /\d/.test(c)) return true;
+  return false;
+}
+
+// Selector tuy chinh DA LUU co con dang tin khong? Tra ve true neu ket qua
+// tu selector da luu nhin nhu "het han": qua ngan, trung dap an truoc, hoac
+// co ung vien quet/dong dai hon nhieu va khac han — khi do phai BO ket qua
+// nay va lay lai bang cac tang dong (khong cham diem custom cho no).
+function isStaleCustomResult({ text, prevText, candidates } = {}) {
+  const value = String(text || '');
+  if (value.length < 80) return true;
+  if (prevText && String(prevText).trim() && textSimilarity(value, String(prevText)) >= 0.95) return true;
+  const list = Array.isArray(candidates) ? candidates : [];
+  let best = null;
+  for (const c of list) { if (c && typeof c.length === 'number' && (!best || c.length > best.length)) best = c; }
+  if (best && best.length > value.length * 1.8 && best.length - value.length > 200) {
+    if (textSimilarity(String(best.preview || ''), value.slice(0, 160)) < 0.5) return true;
+  }
+  return false;
+}
+
 function buildExtractScript(botId, customSelector) {
   const hasCustom = !!(customSelector && String(customSelector).trim());
   const siteSelectors = SITE_SELECTORS[botId] || [];
   return `(() => {
 ${PAGE_HELPERS}
   const CUSTOM = ${JSON.stringify(hasCustom ? String(customSelector).trim() : '')};
+  const BOT = ${JSON.stringify(botId)};
   const SITE = ${JSON.stringify(siteSelectors)};
   const GENERIC = ${JSON.stringify(GENERIC_SELECTORS)};
   const pickFrom = (els) => {
@@ -270,6 +322,16 @@ ${PAGE_HELPERS}
   for (const sel of SITE.concat(GENERIC)) {
     const t = pickFrom(queryAny(sel));
     if (t) return done(t, 'default', sel);
+  }
+  // Tang 2b (chi Copilot): DONG — Copilot doi key/id moi cuoc hoi thoai nen
+  // selector da luu khong bao gio dung lai duoc. Tang nay tim LAI khoi tra
+  // loi cuoi cung ngay tai thoi diem lay, bang moc cau truc on dinh trong
+  // shadow DOM (khong dung bat ky gia tri da luu nao).
+  if (BOT === 'copilot') {
+    for (const sel of ['cib-message-group[type="response"]', 'cib-message-group', 'cib-message', '[data-testid="ai-message"]']) {
+      const t = pickFrom(queryAny(sel));
+      if (t && t.length >= 60) return done(t, 'dynamic', 'copilot-dynamic');
+    }
   }
   // Tang 3: scan — khoi ung vien cuoi cung (dap an moi nhat o cuoi trang)
   const lastBlock = minimal[minimal.length - 1];
@@ -368,12 +430,8 @@ const COMPOSER_SELECTORS = {
   muse: [],
 };
 
-function buildFillComposerScript(botId, text) {
-  const selectors = [...(COMPOSER_SELECTORS[botId] || [])];
-  return `(() => {
-${PAGE_HELPERS}
-  const TEXT = ${JSON.stringify(text)};
-  const SPECIFIC = ${JSON.stringify(selectors)};
+// Doan tim o nhap dung chung cho fill / focus / doc-lai (chay trong trang).
+const FIND_COMPOSER_SNIPPET = `
   let el = null; let via = '';
   for (const sel of SPECIFIC) {
     const els = queryAny(sel).filter((e) => isVisible(e) && !e.disabled && !e.readOnly);
@@ -391,6 +449,15 @@ ${PAGE_HELPERS}
     }
     el = best; via = 'o-nhap-chung';
   }
+`;
+
+function buildFillComposerScript(botId, text) {
+  const selectors = [...(COMPOSER_SELECTORS[botId] || [])];
+  return `(() => {
+${PAGE_HELPERS}
+  const TEXT = ${JSON.stringify(text)};
+  const SPECIFIC = ${JSON.stringify(selectors)};
+${FIND_COMPOSER_SNIPPET}
   if (!el) return { ok: false, error: 'not-found' };
   try { el.focus(); } catch (_) {}
   const isTextControl = el.tagName === 'TEXTAREA' || el.tagName === 'INPUT';
@@ -426,6 +493,50 @@ ${PAGE_HELPERS}
 })()`;
 }
 
+// Chi tim + focus o nhap, tra toa do tam de main process bam chuot that va
+// go bang co che goc cua Electron (insertText/paste) — cach duy nhat editor
+// cua Gemini (Angular, rich-textarea) cong nhan la nguoi dung da nhap.
+function buildFocusComposerScript(botId) {
+  const selectors = [...(COMPOSER_SELECTORS[botId] || [])];
+  return `(() => {
+${PAGE_HELPERS}
+  const SPECIFIC = ${JSON.stringify(selectors)};
+${FIND_COMPOSER_SNIPPET}
+  if (!el) return { ok: false, error: 'not-found' };
+  try { el.scrollIntoView({ block: 'center' }); } catch (_) {}
+  try { el.focus(); } catch (_) {}
+  let x = null; let y = null;
+  try { const r = el.getBoundingClientRect(); x = Math.round(r.left + r.width / 2); y = Math.round(r.top + r.height / 2); } catch (_) {}
+  const kind = (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') ? 'textarea' : 'editable';
+  return { ok: true, x, y, kind, via };
+})()`;
+}
+
+// Doc lai noi dung dang co trong o nhap — dung de XAC NHAN sau khi dan,
+// tranh bao ok gia nhu ban cu (script cu tra ok ke ca khi chu chua vao o).
+function buildReadComposerScript(botId) {
+  const selectors = [...(COMPOSER_SELECTORS[botId] || [])];
+  return `(() => {
+${PAGE_HELPERS}
+  const SPECIFIC = ${JSON.stringify(selectors)};
+${FIND_COMPOSER_SNIPPET}
+  if (!el) return { ok: false, error: 'not-found' };
+  const isTextControl = el.tagName === 'TEXTAREA' || el.tagName === 'INPUT';
+  return { ok: true, text: isTextControl ? String(el.value || '') : textOf(el) };
+})()`;
+}
+
+// Noi dung doc lai co chua phan lon doan vua dan khong? (chuan hoa khoang
+// trang; chap nhan neu chua doan mo dau hoac dai >= 80% doan goc).
+function composerTextMatches(readText, insertedText) {
+  const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  const a = norm(readText);
+  const b = norm(insertedText);
+  if (!a || !b) return false;
+  if (b.length >= 24 && a.includes(b.slice(0, 24))) return true;
+  return a.length >= b.length * 0.8;
+}
+
 function noView() {
   return { ok: false, error: 'Tab này chưa được mở trong app — hãy bấm vào thẻ của bot để mở tab trước rồi bấm lại.' };
 }
@@ -443,17 +554,28 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function extractFromView(view, botId, customSelector, opts = {}) {
   if (!view) return noView();
-  const script = buildExtractScript(botId, customSelector);
-  const first = await runInView(view, script);
+  let effectiveSelector = customSelector || '';
+  let staleSelector = false;
+  const first = await runInView(view, buildExtractScript(botId, effectiveSelector));
   if (first.missing) return noView();
   if (first.error) return { ok: false, error: first.error };
-  const r1 = first.value;
+  let r1 = first.value;
+  // Kiem chung selector DA LUU: neu ket qua cua no nhin nhu het han (Copilot
+  // doi key moi hoi thoai la truong hop dien hinh) thi bo han ket qua nay,
+  // chay lai KHONG dung selector da luu de roi xuong mac dinh -> dong/scan.
+  if (r1 && r1.ok && effectiveSelector && r1.strategy === 'custom'
+    && isStaleCustomResult({ text: r1.text, prevText: opts.prevText || '', candidates: r1.candidates || [] })) {
+    staleSelector = true;
+    effectiveSelector = '';
+    const retry = await runInView(view, buildExtractScript(botId, ''));
+    if (retry && retry.value) r1 = retry.value;
+  }
   if (!r1 || !r1.ok || !String(r1.text || '').trim()) {
-    return { ok: false, error: 'Không tìm thấy khối đáp án của bot trong tab (bot chưa trả lời xong, hoặc trang đã đổi giao diện). Hãy mở dialog của bot, vào "Cài đặt lấy đáp án" để QUÉT các vùng ứng viên hoặc CHỌN VÙNG trực tiếp trên trang thật — selector bạn chọn sẽ thay mặc định. Cách cũ "Dán từ clipboard" vẫn dùng được.', candidates: (r1 && r1.candidates) || [] };
+    return { ok: false, error: 'Không tìm thấy khối đáp án của bot trong tab (bot chưa trả lời xong, hoặc trang đã đổi giao diện). Hãy mở dialog của bot, vào "Cài đặt lấy đáp án" để QUÉT các vùng ứng viên hoặc CHỌN VÙNG trực tiếp trên trang thật — selector bạn chọn sẽ thay mặc định. Cách cũ "Dán từ clipboard" vẫn dùng được.', candidates: (r1 && r1.candidates) || [], staleSelector };
   }
   // Lan doc 2 sau ~1,2s de cham diem on dinh (bot con go thi text se khac).
   await sleep(1200);
-  const second = await runInView(view, script);
+  const second = await runInView(view, buildExtractScript(botId, effectiveSelector));
   const r2 = second && second.value && second.value.ok ? second.value : null;
   const text = String(r1.text).trim();
   const { confidence, breakdown } = scoreConfidence({
@@ -472,6 +594,7 @@ async function extractFromView(view, botId, customSelector, opts = {}) {
     confidence,
     breakdown,
     candidates: r1.candidates || [],
+    staleSelector,
   };
 }
 
@@ -504,16 +627,74 @@ async function pollPickInView(view) {
 
 async function fillComposerInView(view, botId, text) {
   if (!view) return noView();
-  if (!String(text || '').trim()) return { ok: false, error: 'Prompt đang trống.' };
-  const r = await runInView(view, buildFillComposerScript(botId, String(text)));
-  if (r.missing) return noView();
-  if (r.error) return { ok: false, error: r.error };
-  if (!r.value || !r.value.ok) return { ok: false, error: 'Không tìm thấy ô nhập của chatbot trong tab (trang có thể chưa tải xong hoặc đã đổi giao diện). Hãy đợi trang tải xong rồi bấm lại, hoặc dùng nút Copy prompt + dán tay (Ctrl+V) như trước.' };
-  return { ok: true, via: r.value.via };
+  const value = String(text || '');
+  if (!value.trim()) return { ok: false, error: 'Prompt đang trống.' };
+  const wc = view.webContents;
+  const notFound = { ok: false, error: 'Không tìm thấy ô nhập của chatbot trong tab (trang có thể chưa tải xong hoặc đã đổi giao diện). Hãy đợi trang tải xong rồi bấm lại, hoặc dùng nút Copy prompt + dán tay (Ctrl+V) như trước.' };
+  const verify = async () => {
+    const rr = await runInView(view, buildReadComposerScript(botId));
+    if (!rr || !rr.value || !rr.value.ok) return false;
+    return composerTextMatches(rr.value.text, value);
+  };
+  const jsFill = async () => {
+    const r = await runInView(view, buildFillComposerScript(botId, value));
+    if (!r || !r.value || !r.value.ok) return null;
+    return (await verify()) ? { ok: true, via: r.value.via } : null;
+  };
+  const nativePaste = async () => {
+    try {
+      const { clipboard } = require('electron');
+      clipboard.writeText(value);
+      if (typeof wc.paste === 'function') { wc.paste(); return true; }
+    } catch (_) { /* bo qua */ }
+    return false;
+  };
+
+  // Buoc 1: tim + focus o nhap trong trang.
+  const focusRes = await runInView(view, buildFocusComposerScript(botId));
+  if (focusRes.missing) return noView();
+  if (focusRes.error) return { ok: false, error: focusRes.error };
+  const focus = focusRes.value;
+  if (!focus || !focus.ok) {
+    const viaJs = await jsFill();
+    return viaJs || notFound;
+  }
+
+  // O nhap la textarea/input thuong (ChatGPT/Copilot): duong JS cu dang
+  // chay tot — giu nguyen, chi them xac nhan doc lai.
+  if (focus.kind !== 'editable') {
+    const viaJs = await jsFill();
+    if (viaJs) return viaJs;
+    try { if (typeof wc.insertText === 'function') await wc.insertText(value); } catch (_) { /* bo qua */ }
+    if (await verify()) return { ok: true, via: `${focus.via}+native` };
+    return { ok: false, error: `Đã thử dán vào ô nhập của ${botId} nhưng đọc lại ô nhập không thấy nội dung. Hãy bấm vào ô nhập trong tab rồi thử lại, hoặc dùng nút Sao chép lời nhắc + dán tay (Ctrl+V).` };
+  }
+
+  // contenteditable (dien hinh la Gemini): JS ghi thang KHONG duoc editor
+  // cong nhan. Dung nhap lieu GOC cua Electron: bam chuot that vao o nhap,
+  // roi insertText; khong duoc thi clipboard + paste. Sau moi cach deu DOC
+  // LAI o nhap de xac nhan — khong bao gio bao ok gia nua.
+  try {
+    if (typeof wc.sendInputEvent === 'function' && focus.x != null && focus.y != null) {
+      wc.sendInputEvent({ type: 'mouseDown', x: focus.x, y: focus.y, button: 'left', clickCount: 1 });
+      wc.sendInputEvent({ type: 'mouseUp', x: focus.x, y: focus.y, button: 'left', clickCount: 1 });
+    }
+  } catch (_) { /* bo qua */ }
+  let nativeTried = false;
+  try {
+    if (typeof wc.insertText === 'function') { nativeTried = true; await wc.insertText(value); }
+  } catch (_) { /* bo qua */ }
+  if (nativeTried && (await verify())) return { ok: true, via: `${focus.via}+native` };
+  if ((await nativePaste()) && (await verify())) return { ok: true, via: `${focus.via}+paste` };
+  const viaJs = await jsFill();
+  if (viaJs) return viaJs;
+  return { ok: false, error: `Đã thử dán vào ô nhập của ${botId} bằng cả cơ chế gốc của app lẫn cách cũ nhưng đọc lại ô nhập không thấy nội dung (trang có thể chưa tải xong hoặc đã đổi giao diện). Hãy bấm vào ô nhập trong tab, đợi trang tải xong rồi bấm lại, hoặc dùng nút Sao chép lời nhắc + dán tay (Ctrl+V).` };
 }
 
 module.exports = {
   buildExtractScript, buildScanScript, buildPickStartScript, buildFillComposerScript,
+  buildFocusComposerScript, buildReadComposerScript, composerTextMatches,
   extractFromView, scanCandidatesInView, startPickInView, pollPickInView, fillComposerInView,
   SITE_SELECTORS, scoreConfidence, textSimilarity, STRATEGY_POINTS,
+  looksDynamicToken, isHashClass, isStaleCustomResult, PAGE_HELPERS,
 };

@@ -162,6 +162,61 @@ test('council buildSynthesisPrompt: co dong "Phien nay thieu" khi co Skip', asyn
   assert.ok(!p2.includes('Phiên này thiếu:'));
 });
 
+// ---------- gemini.js: thu ky chu de (Phase B) ----------
+async function loadGemini() {
+  const libDir = path.join(UI_DIR, 'src/lib');
+  const councilTmp = path.join(libDir, 'council.tmp-test.mjs');
+  const geminiTmp = path.join(libDir, 'gemini.tmp-test.mjs');
+  fs.copyFileSync(path.join(libDir, 'council.js'), councilTmp);
+  const src = fs.readFileSync(path.join(libDir, 'gemini.js'), 'utf8').replace("from './council.js'", "from './council.tmp-test.mjs'");
+  fs.writeFileSync(geminiTmp, src);
+  try {
+    return await import(`file://${geminiTmp}`);
+  } finally {
+    fs.unlinkSync(councilTmp);
+    fs.unlinkSync(geminiTmp);
+  }
+}
+
+test('gemini buildTopicAnalysisPrompt: chua du 6 tieu de bat buoc', async () => {
+  const { buildTopicAnalysisPrompt } = await loadGemini();
+  const p = buildTopicAnalysisPrompt({ title: 'Chon huong A hay B', goal: 'ngan sach thap' });
+  for (const h of ['TIÊU ĐỀ ĐỀ XUẤT:', 'MỤC TIÊU VÀ BỐI CẢNH:', 'TIÊU CHÍ CHẤM:', 'CÂU HỎI LÀM RÕ:', 'PROMPT MỞ PHIÊN:', 'CHẾ ĐỘ ĐỀ XUẤT:']) {
+    assert.ok(p.includes(h), `thieu tieu de ${h}`);
+  }
+  assert.ok(p.includes('Chon huong A hay B'));
+});
+
+test('gemini parseTopicAnalysis: tach du 6 truong, che do Nhanh -> fast', async () => {
+  const { parseTopicAnalysis } = await loadGemini();
+  const sample = [
+    'TIÊU ĐỀ ĐỀ XUẤT:', 'Nên chọn hướng A hay B cho sản phẩm X?',
+    '', 'MỤC TIÊU VÀ BỐI CẢNH:', 'Mục tiêu là chốt hướng đi trong quý này. Bối cảnh: đội 3 người, ngân sách thấp.',
+    '', 'TIÊU CHÍ CHẤM:', '- Đúng trọng tâm', '- Khả thi với nguồn lực',
+    '', 'CÂU HỎI LÀM RÕ:', '- Ngân sách tối đa là bao nhiêu?', '- Hạn chốt quyết định là khi nào?',
+    '', 'PROMPT MỞ PHIÊN:', 'Bối cảnh: ... Vòng 1 mỗi bot đề xuất độc lập...',
+    '', 'CHẾ ĐỘ ĐỀ XUẤT:', 'Nhanh — chủ đề dễ, cần chốt nhanh.',
+  ].join('\n');
+  const d = parseTopicAnalysis(sample);
+  assert.equal(d.title, 'Nên chọn hướng A hay B cho sản phẩm X?');
+  assert.ok(d.goal.startsWith('Mục tiêu là chốt hướng đi'));
+  assert.ok(d.criteria.includes('Đúng trọng tâm'));
+  assert.deepEqual(d.questions, ['Ngân sách tối đa là bao nhiêu?', 'Hạn chốt quyết định là khi nào?']);
+  assert.ok(d.openingPrompt.includes('Vòng 1 mỗi bot đề xuất độc lập'));
+  assert.equal(d.mode, 'fast');
+  assert.ok(d.modeReason.includes('Nhanh'));
+});
+
+test('gemini parseTopicAnalysis: thieu muc thi de trong, khong nem loi; mac dinh Sau', async () => {
+  const { parseTopicAnalysis } = await loadGemini();
+  const d = parseTopicAnalysis('TIÊU ĐỀ ĐỀ XUẤT:\nChỉ có tiêu đề\n\nCHẾ ĐỘ ĐỀ XUẤT:\nSâu — chủ đề khó, cần bàn kỹ.');
+  assert.equal(d.title, 'Chỉ có tiêu đề');
+  assert.equal(d.goal, '');
+  assert.deepEqual(d.questions, []);
+  assert.equal(d.mode, 'deep');
+  assert.deepEqual(parseTopicAnalysis(''), { title: '', goal: '', criteria: '', questions: [], openingPrompt: '', mode: 'deep', modeReason: '' });
+});
+
 // ---------- extractor (CommonJS) ----------
 test('extractor scoreConfidence: khop bang diem thiet ke', () => {
   const ex = require(path.join(UI_DIR, 'electron/answerExtract.js'));
@@ -171,6 +226,70 @@ test('extractor scoreConfidence: khop bang diem thiet ke', () => {
   assert.ok(weak.confidence < 60);
   assert.equal(ex.STRATEGY_POINTS.scan, 10);
   assert.equal(ex.STRATEGY_POINTS.default, 18);
+});
+
+test('extractor: STRATEGY_POINTS co dynamic=15 va khop confidence.js', async () => {
+  const ex = require(path.join(UI_DIR, 'electron/answerExtract.js'));
+  assert.equal(ex.STRATEGY_POINTS.dynamic, 15);
+  const { STRATEGY_POINTS } = await loadEsm('src/lib/confidence.js');
+  assert.deepEqual(STRATEGY_POINTS, ex.STRATEGY_POINTS);
+});
+
+test('extractor: looksDynamicToken / isHashClass nhan dien key dong cua Copilot', () => {
+  const ex = require(path.join(UI_DIR, 'electron/answerExtract.js'));
+  assert.equal(ex.looksDynamicToken('msg-12345678'), true);
+  assert.equal(ex.looksDynamicToken('3f8a2c1e-9b7d-4e5f-a1b2-c3d4e5f6a7b8'), true);
+  assert.equal(ex.looksDynamicToken('a1b2c3d4e5f6'), true);
+  assert.equal(ex.looksDynamicToken('deadbeefcafe1234'), true);
+  assert.equal(ex.looksDynamicToken('prompt-textarea'), false);
+  assert.equal(ex.looksDynamicToken('userInput'), false);
+  assert.equal(ex.looksDynamicToken('ai-message'), false);
+  assert.equal(ex.looksDynamicToken(''), false);
+  assert.equal(ex.isHashClass('xY9kQ2wZ8ab1'), true);
+  assert.equal(ex.isHashClass('markdown'), false);
+  assert.equal(ex.isHashClass('model-response-text'), false);
+});
+
+test('extractor: segmentOf bo id dong, giu id on dinh (chay PAGE_HELPERS trong vm)', () => {
+  const ex = require(path.join(UI_DIR, 'electron/answerExtract.js'));
+  const ctx = vm.createContext({ CSS: { escape: (x) => x }, console });
+  vm.runInContext(ex.PAGE_HELPERS, ctx);
+  const mkEl = (id) => ({
+    tagName: 'DIV', id, className: '', parentNode: null,
+    getAttribute: () => null,
+  });
+  ctx.__elDyn = mkEl('turn-987654321');
+  ctx.__elStable = mkEl('userInput');
+  const segDyn = vm.runInContext('segmentOf(__elDyn)', ctx);
+  const segStable = vm.runInContext('segmentOf(__elStable)', ctx);
+  assert.ok(!String(segDyn).includes('987654321'), `segment dong van chua key: ${segDyn}`);
+  assert.equal(segStable, '#userInput');
+});
+
+test('extractor: isStaleCustomResult bat selector het han', () => {
+  const ex = require(path.join(UI_DIR, 'electron/answerExtract.js'));
+  const good = 'x'.repeat(300);
+  assert.equal(ex.isStaleCustomResult({ text: good, prevText: 'noi dung khac han toan', candidates: [] }), false);
+  assert.equal(ex.isStaleCustomResult({ text: 'ngan', prevText: '', candidates: [] }), true);
+  assert.equal(ex.isStaleCustomResult({ text: good, prevText: good, candidates: [] }), true);
+  assert.equal(ex.isStaleCustomResult({
+    text: 'y'.repeat(100), prevText: '',
+    candidates: [{ selector: 'div', length: 900, preview: 'noi dung hoan toan khac '.repeat(8) }],
+  }), true);
+  // Ung vien dai hon nhung CUNG noi dung (ban xem truoc giong) thi khong coi la het han
+  assert.equal(ex.isStaleCustomResult({
+    text: good, prevText: '',
+    candidates: [{ selector: 'div', length: 900, preview: good.slice(0, 160) }],
+  }), false);
+});
+
+test('extractor: composerTextMatches xac nhan dan thanh cong that', () => {
+  const ex = require(path.join(UI_DIR, 'electron/answerExtract.js'));
+  const prompt = 'Day la prompt dai can dan vao o nhap cua Gemini de hoi dong thao luan';
+  assert.equal(ex.composerTextMatches(prompt, prompt), true);
+  assert.equal(ex.composerTextMatches(`  ${prompt.replace(/ /g, '\n')}  `, prompt), true);
+  assert.equal(ex.composerTextMatches('', prompt), false);
+  assert.equal(ex.composerTextMatches('chi co vai chu', prompt), false);
 });
 
 test('extractor: script chay duoc tren fake-DOM va lay dung khoi dap an', () => {

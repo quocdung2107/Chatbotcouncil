@@ -8,6 +8,11 @@ import {
 
 const KEY_STORAGE = 'hoi-dong-gemini-api-key';
 const MODEL_STORAGE = 'hoi-dong-gemini-model';
+const SECRETARY_STORAGE = 'hoi-dong-secretary-auto';
+const BUSY_LABELS = {
+  test: 'kiểm tra kết nối', claimCards: 'tóm tắt thẻ luận điểm', formCheck: 'kiểm tra form',
+  synthBrief: 'chuẩn bị gói tổng hợp', topicAnalysis: 'phân tích chủ đề',
+};
 
 // Panel DIEU PHOI Gemini API — khoi phuc vai tro dieu phoi trong thiet ke goc:
 // API khong tranh luan, no tom tat / kiem tra form / chuan bi goi tong hop.
@@ -36,6 +41,11 @@ export default function GeminiPanel() {
     } catch (_) { return DEFAULT_GEMINI_MODEL; }
   });
   const [showKey, setShowKey] = useState(false);
+  const [secretaryOn, setSecretaryOn] = useState(() => { try { return localStorage.getItem(SECRETARY_STORAGE) !== 'off'; } catch (_) { return true; } });
+  const saveSecretary = (value) => {
+    setSecretaryOn(value);
+    try { localStorage.setItem(SECRETARY_STORAGE, value ? 'on' : 'off'); } catch (_) { /* bo qua */ }
+  };
 
   const saveKey = (value) => {
     setApiKey(value);
@@ -80,6 +90,24 @@ export default function GeminiPanel() {
           Muốn bật lại, hãy bắt đầu phiên mới và bấm "Đồng ý" ở cảnh báo.
         </div>
       )}
+      <div className="secretary-box">
+        <label className="secretary-toggle">
+          <input type="checkbox" checked={secretaryOn} onChange={(e) => saveSecretary(e.target.checked)} />
+          <span>🧑‍💼 Thư ký tự động</span>
+        </label>
+        <p className="gemini-hint">
+          Bật (mặc định): thư ký tự chạy khi có sự kiện — vòng 1 đủ thì tự tóm tắt thẻ luận điểm,
+          mỗi vòng đủ thì tự kiểm tra form, vòng cuối đủ thì tự chuẩn bị gói tổng hợp.
+          Vẫn cần có key và bạn đã bấm "Đồng ý" ở cảnh báo trên. Tắt: chỉ chạy khi bạn bấm nút như cũ.
+        </p>
+        <div className="secretary-status">
+          Trạng thái thư ký: {busy
+            ? `đang làm — ${BUSY_LABELS[coordinator.busy] || coordinator.busy}…`
+            : coordinator.lastAuto
+              ? `việc tự động gần nhất: ${coordinator.lastAuto}`
+              : 'đang rảnh, chờ sự kiện tiếp theo'}
+        </div>
+      </div>
       <label className="gemini-label">Gemini API key (lấy miễn phí ở Google AI Studio)
         <div className="gemini-key-row">
           <input

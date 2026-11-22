@@ -7,7 +7,7 @@ import {
 } from '../lib/council';
 import { checkPromptIntegrity } from '../lib/promptIntegrity';
 import { deriveCellStatus, CELL_STATUS } from '../lib/nextAction';
-import { callGemini, buildClaimCardsPrompt, buildFormCheckPrompt, buildSynthBriefPrompt } from '../lib/gemini';
+import { callGemini, buildClaimCardsPrompt, buildFormCheckPrompt, buildSynthBriefPrompt, buildTopicAnalysisPrompt, parseTopicAnalysis } from '../lib/gemini';
 import {
   copyPromptRequested, pasteAnswerRequested, fetchAnswerRequested, exportRequested,
   copySynthesisPromptRequested, pasteSynthesisAnswerRequested, fetchSynthesisAnswerRequested,
@@ -15,6 +15,8 @@ import {
   restoreSessionRequested, openSessionRequested, dropAnswerFileRequested,
   refreshFilesRequested,
   geminiTestRequested, geminiClaimCardsRequested, geminiFormCheckRequested, geminiSynthBriefRequested,
+  geminiTopicAnalysisRequested, topicDraftReady, secretaryAutoMarked, secretaryStatusSet,
+  geminiConsentSet,
   promptCopied, answerPasted, answerFetched, saveAnswer, nextRound, finishSession,
   synthesisPromptCopied, synthesisAnswerPasted, synthesisAnswerFetched, synthesisSaved,
   candidatesReady, pickStarted, pickFinished, selectorApplied, selectorCleared,
@@ -200,6 +202,13 @@ function* fetchAnswerSaga(action) {
     yield put(logAdded(`Không lấy được đáp án của ${botId}: ${result?.error || 'lỗi không rõ'}`));
     return;
   }
+  // Extractor phat hien selector da luu da het han (vd Copilot doi key moi
+  // hoi thoai): xoa han selector do khoi localStorage de lan sau di thang
+  // duong dong, va bao cho nguoi dung biet.
+  if (result.staleSelector) {
+    yield call(clearCustomSelector, botId);
+    yield put(logAdded(`Vùng đáp án đã lưu cho ${botId} đã cũ (trang đã đổi key/cấu trúc) — app đã xoá vùng lưu đó và lấy lại bằng cách tìm động theo cấu trúc trang. Từ nay ${botId} sẽ luôn được tìm động mỗi lần lấy, không cần chọn lại vùng.`));
+  }
   // Diem tin cay < 60: KHONG do vao o dap an — dua danh sach ung vien de
   // nguoi dung chon lai vung dung (Muc 2.2 cua thiet ke).
   if (typeof result.confidence === 'number' && result.confidence < 60) {
@@ -328,6 +337,10 @@ function* fetchSynthesisAnswerSaga() {
   if (!result?.ok) {
     yield put(logAdded(`Không lấy được kết luận từ tab Muse: ${result?.error || 'lỗi không rõ'}`));
     return;
+  }
+  if (result.staleSelector) {
+    yield call(clearCustomSelector, 'muse');
+    yield put(logAdded('Vùng đáp án đã lưu cho Muse đã cũ — app đã xoá vùng lưu đó và lấy lại bằng cách tìm động theo cấu trúc trang.'));
   }
   yield put(synthesisAnswerFetched(String(result.text)));
 }
@@ -660,6 +673,95 @@ function* geminiSynthBriefSaga(action) {
   }
 }
 
+// ---- Thu ky Gemini API chu dong ----
+// Phase A: 3 viec dieu phoi hien co tu chay theo su kien (vong du) thay vi
+// cho nguoi dung bam nut. Phase B: phan tich chu de o man hinh bat dau.
+// Key/model doc thang tu localStorage — DUNG cac khoa GeminiPanel dang
+// dung; key khong bao gio vao Redux state hay file phien.
+const SECRETARY_KEY_STORAGE = 'hoi-dong-gemini-api-key';
+const SECRETARY_MODEL_STORAGE = 'hoi-dong-gemini-model';
+const SECRETARY_TOGGLE_STORAGE = 'hoi-dong-secretary-auto';
+
+function secretaryPayload() {
+  try {
+    const apiKey = String(localStorage.getItem(SECRETARY_KEY_STORAGE) || '').trim();
+    if (!apiKey) return null;
+    return { apiKey, model: localStorage.getItem(SECRETARY_MODEL_STORAGE) || undefined };
+  } catch (_) { return null; }
+}
+function secretaryEnabled() {
+  try { return localStorage.getItem(SECRETARY_TOGGLE_STORAGE) !== 'off'; } catch (_) { return true; }
+}
+
+function* geminiTopicAnalysisSaga(action) {
+  const state0 = yield select(selectCouncil);
+  if (state0.coordinator?.consent !== true) {
+    yield put(logAdded(state0.coordinator?.consent === false
+      ? '🧑‍💼 Thư ký đang TẮT cho phiên này (bạn đã chọn tắt điều phối) — hãy bấm "Chủ đề mới" và đồng ý ở hộp cảnh báo nếu muốn thư ký phân tích chủ đề.'
+      : '🧑‍💼 Thư ký chưa phân tích được: hãy đọc hộp cảnh báo gửi nội dung lên Gemini API ở mục Thư ký (hoặc panel Điều phối) và bấm "Đồng ý" trước.'));
+    return;
+  }
+  const topic = action.payload?.topic || { title: state0.topic.title, goal: state0.topic.goal };
+  if (!String(topic.title || '').trim()) {
+    yield put(logAdded('🧑‍💼 Thư ký: hãy nhập chủ đề trước rồi mới bấm "Phân tích chủ đề của tôi".'));
+    return;
+  }
+  const payload = { apiKey: action.payload?.apiKey, model: action.payload?.model };
+  const result = yield call(geminiCall, payload, 'topicAnalysis', buildTopicAnalysisPrompt({ title: topic.title, goal: topic.goal || '' }));
+  if (result) {
+    const draft = parseTopicAnalysis(result.text);
+    yield put(topicDraftReady({ ...draft, raw: result.text }));
+  }
+}
+
+// Watcher: chay sau cac su kien co the lam 1 vong "du" (luu dap an, bo qua,
+// dong y Gemini, chot sang tong hop). Moi viec danh dau autoRan TRUOC khi
+// chay nen khong bao gio tu chay 2 lan cho cung 1 dau vao; loi API thi
+// nguoi dung van bam nut thu cong nhu cu.
+function* secretaryAutoSaga() {
+  const payload = secretaryPayload();
+  if (!payload || !secretaryEnabled()) return;
+  let state = yield select(selectCouncil);
+  if (state.coordinator?.consent !== true || state.coordinator?.busy) return;
+  if (!['running', 'synthesis', 'done'].includes(state.phase)) return;
+
+  if (!state.coordinator.claimCards && !state.coordinator.autoRan?.claimCards) {
+    const full = yield select();
+    if (selectRoundComplete(full, 1)) {
+      yield put(secretaryAutoMarked({ job: 'claimCards' }));
+      yield put(secretaryStatusSet('Tự tóm tắt vòng 1 thành thẻ luận điểm'));
+      yield put(logAdded('🧑‍💼 Thư ký: vòng 1 đã đủ — tự tóm tắt thành THẺ LUẬN ĐIỂM, bạn không cần bấm nút điều phối.'));
+      yield call(geminiClaimCardsSaga, { payload });
+    }
+  }
+
+  state = yield select(selectCouncil);
+  if (state.coordinator?.consent === true && !state.coordinator?.busy) {
+    const r = state.round;
+    if (!(state.coordinator.autoRan?.formCheckRounds || []).includes(r)) {
+      const full = yield select();
+      if (selectRoundComplete(full, r)) {
+        yield put(secretaryAutoMarked({ job: 'formCheck', round: r }));
+        yield put(secretaryStatusSet(`Tự kiểm tra form vòng ${r}`));
+        yield put(logAdded(`🧑‍💼 Thư ký: vòng ${r} đã đủ — tự KIỂM TRA FORM, kết quả nằm ở panel Điều phối.`));
+        yield call(geminiFormCheckSaga, { payload });
+      }
+    }
+  }
+
+  state = yield select(selectCouncil);
+  if (state.coordinator?.consent === true && !state.coordinator?.busy && !state.coordinator.synthBrief && !state.coordinator.autoRan?.synthBrief) {
+    const lastRound = state.topic.mode === 'fast' ? 1 : 3;
+    const full = yield select();
+    if (selectRoundComplete(full, lastRound)) {
+      yield put(secretaryAutoMarked({ job: 'synthBrief' }));
+      yield put(secretaryStatusSet('Tự chuẩn bị gói tóm tắt trước tổng hợp'));
+      yield put(logAdded('🧑‍💼 Thư ký: vòng cuối đã đủ — tự chuẩn bị GÓI TÓM TẮT trước tổng hợp cho Muse.'));
+      yield call(geminiSynthBriefSaga, { payload });
+    }
+  }
+}
+
 export default function* rootSaga() {
   yield all([
     takeEvery(copyPromptRequested.type, copyPromptSaga),
@@ -690,5 +792,7 @@ export default function* rootSaga() {
     takeEvery(geminiClaimCardsRequested.type, geminiClaimCardsSaga),
     takeEvery(geminiFormCheckRequested.type, geminiFormCheckSaga),
     takeEvery(geminiSynthBriefRequested.type, geminiSynthBriefSaga),
+    takeEvery(geminiTopicAnalysisRequested.type, geminiTopicAnalysisSaga),
+    takeEvery([saveAnswer.type, answerPasted.type, botSkipped.type, geminiConsentSet.type, finishSession.type], secretaryAutoSaga),
   ]);
 }
